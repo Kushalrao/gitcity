@@ -4,15 +4,53 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>agentview</title>
+<script>
+  (function () {
+    const saved = localStorage.getItem('agentview-theme');
+    const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+    if (dark) document.documentElement.classList.add('dark');
+  })();
+</script>
 <style>
   :root {
     --bg: #ffffff;
+    --fg: #2b2b2b;
     --dim: #9a9a9a;
     --track: #dcdcdc;
+    --panel: rgba(255,255,255,0.92);
+    --panel-border: #e2e2e2;
+    --hud-bg: rgba(255,255,255,0.85);
+    --hud-border: #ececec;
+    --label: #8a8a8a;
+    --station: #c4c4c4;
+    --stlabel: #bbbbbb;
+    --bubble-bg: #ffffff;
+    --bubble-border: #dddddd;
+    --bubble-text: #444444;
+    --shadow: rgba(0,0,0,0.08);
+    --shadow-hover: rgba(0,0,0,0.15);
+  }
+  html.dark {
+    --bg: #17181c;
+    --fg: #e4e4e7;
+    --dim: #8b8b93;
+    --track: #34363e;
+    --panel: rgba(35,37,43,0.92);
+    --panel-border: #3a3d46;
+    --hud-bg: rgba(35,37,43,0.85);
+    --hud-border: #34363e;
+    --label: #9a9aa4;
+    --station: #4c4f59;
+    --stlabel: #6c6f7a;
+    --bubble-bg: #24262d;
+    --bubble-border: #3a3d46;
+    --bubble-text: #d4d4d9;
+    --shadow: rgba(0,0,0,0.4);
+    --shadow-hover: rgba(0,0,0,0.55);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    background: var(--bg); color: #2b2b2b;
+    background: var(--bg); color: var(--fg);
     font: 13px/1.5 -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
     height: 100vh; overflow: hidden;
   }
@@ -25,16 +63,19 @@
   }
   #pickBtn, .pickOpt {
     width: 54px; height: 54px; border-radius: 50%;
-    background: rgba(255,255,255,0.92); backdrop-filter: blur(4px);
-    border: 1px solid #e2e2e2; box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    background: var(--panel); backdrop-filter: blur(4px);
+    border: 1px solid var(--panel-border); box-shadow: 0 2px 8px var(--shadow);
     cursor: pointer; padding: 0;
     display: flex; align-items: center; justify-content: center;
     transition: transform 0.12s, box-shadow 0.12s;
   }
-  #pickBtn:hover, .pickOpt:hover { transform: scale(1.12); box-shadow: 0 3px 12px rgba(0,0,0,0.15); }
+  #pickBtn:hover, .pickOpt:hover { transform: scale(1.12); box-shadow: 0 3px 12px var(--shadow-hover); }
   .pickOpt.selected { border: 2px solid #FF6319; }
   #pickMenu {
-    display: none; flex-wrap: wrap; gap: 8px; max-width: 390px;
+    display: none; flex-wrap: wrap; gap: 8px; max-width: 460px;
+    max-height: 74vh; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 18px; padding: 12px; box-shadow: 0 4px 16px var(--shadow);
     animation: pickin 0.15s ease-out;
   }
   #pickMenu.open { display: flex; }
@@ -42,8 +83,8 @@
   .pickOpt { position: relative; }
   .pickOpt .nm {
     position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
-    font: 10px ui-monospace, Menlo, monospace; color: #8a8a8a;
-    background: rgba(255,255,255,0.9); padding: 1px 6px; border-radius: 8px;
+    font: 10px ui-monospace, Menlo, monospace; color: var(--label);
+    background: var(--panel); padding: 1px 6px; border-radius: 8px;
     opacity: 0; transition: opacity 0.12s; pointer-events: none; white-space: nowrap;
   }
   .pickOpt:hover .nm { opacity: 1; }
@@ -51,8 +92,8 @@
   #hud {
     position: fixed; left: 14px; bottom: 12px; z-index: 10;
     display: flex; align-items: center; gap: 8px;
-    background: rgba(255,255,255,0.85); backdrop-filter: blur(4px);
-    border: 1px solid #ececec; border-radius: 20px; padding: 5px 14px;
+    background: var(--hud-bg); backdrop-filter: blur(4px);
+    border: 1px solid var(--hud-border); border-radius: 20px; padding: 5px 14px;
     font: 11px ui-monospace, Menlo, monospace; color: var(--dim);
     pointer-events: none;
   }
@@ -60,17 +101,28 @@
   #status.on { background: #2fbf62; box-shadow: 0 0 6px #2fbf6288; }
 
   .trackline { stroke: var(--track); stroke-width: 3; stroke-linecap: round; fill: none; }
-  .dirlabel { font-size: 10.5px; fill: #8a8a8a; font-family: ui-monospace, Menlo, monospace; }
+  .dirlabel { font-size: 10.5px; fill: var(--label); font-family: ui-monospace, Menlo, monospace; }
   .badge-letter { font-size: 10px; font-weight: 700; fill: #fff; }
-  .station { fill: #c4c4c4; transition: fill 0.4s; }
-  .stlabel { font-size: 9.5px; fill: #bbbbbb; font-family: ui-monospace, Menlo, monospace; transition: fill 0.3s; }
-  .stlabel.active { fill: #2b2b2b; font-weight: 600; }
+  .station { fill: var(--station); transition: fill 0.4s; }
+  .stlabel { font-size: 9.5px; fill: var(--stlabel); font-family: ui-monospace, Menlo, monospace; transition: fill 0.3s; }
+  .stlabel.active { fill: var(--fg); font-weight: 600; }
 
   .agent { transition: opacity 0.3s; }
   .agent .sprite-g { filter: drop-shadow(0 1.5px 2px rgba(0,0,0,0.3)); }
-  .agent .bubble-bg { fill: #ffffff; stroke: #dddddd; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.12)); }
-  .agent .bubble-text { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace; fill: #444; }
+  .agent .bubble-bg { fill: var(--bubble-bg); stroke: var(--bubble-border); filter: drop-shadow(0 2px 5px rgba(0,0,0,0.12)); }
+  .agent .bubble-text { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace; fill: var(--bubble-text); }
   .agent .bubble-verb { font-weight: 700; }
+
+  #themeBtn {
+    position: fixed; right: 14px; top: 14px; z-index: 20;
+    width: 38px; height: 38px; border-radius: 50%;
+    background: var(--panel); backdrop-filter: blur(4px);
+    border: 1px solid var(--panel-border); box-shadow: 0 2px 8px var(--shadow);
+    cursor: pointer; padding: 0;
+    font-size: 16px; line-height: 1; color: var(--fg);
+    transition: transform 0.12s, box-shadow 0.12s;
+  }
+  #themeBtn:hover { transform: scale(1.12); box-shadow: 0 3px 12px var(--shadow-hover); }
 </style>
 </head>
 <body>
@@ -79,6 +131,7 @@
     <button id="pickBtn" title="change character"></button>
     <div id="pickMenu"></div>
   </div>
+  <button id="themeBtn" title="toggle dark mode"></button>
   <div id="hud"><span id="status"></span><span id="watchdir">connecting…</span></div>
 
 <script>
@@ -598,6 +651,160 @@ const CHARACTERS = {
     gray: { G: '#B0B4BA', K: '#5F6673' },
   },
 };
+
+/* ---- extended roster: skeletons × palettes ----
+   caped humanoid: P = cape (trails behind), E = ears/horns; unmapped letters simply don't draw */
+const caped = rows => rows.map((r, i) =>
+  r === '...CCCCCC...' ? '..ECCCCCCE..'
+  : (i >= 7 && i <= 12 && r[0] === '.') ? 'P' + r.slice(1) : r);
+const CAPE = {
+  stand: caped(H_STAND), run: [caped(H_RUN1), caped(H_RUN2), caped(H_RUN3)],
+  runCycle: [1, 2, 3, 2], work: [caped(H_SIT1), caped(H_SIT2)],
+};
+
+/* auto color variants: hue-rotate everything except skin/tool/eyes/whites */
+function hexHsl(hex) {
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16 & 255) / 255, g = (n >> 8 & 255) / 255, b = (n & 255) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  let h = 0, s = 0;
+  if (d) {
+    s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+    h = (mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4) * 60;
+  }
+  return [h, s, l];
+}
+function hslHex(h, s, l) {
+  h = ((h % 360) + 360) % 360;
+  const f = n => {
+    const k = (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+    return Math.round((l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1))) * 255).toString(16).padStart(2, '0');
+  };
+  return '#' + f(0) + f(8) + f(4);
+}
+const KEEP_HUE = new Set(['S', 'T', 'K', 'W']);
+const shiftAll = (c, deg) => Object.fromEntries(Object.entries(c).map(([k, v]) => {
+  if (KEEP_HUE.has(k)) return [k, v];
+  const [h, s, l] = hexHsl(v); return [k, hslHex(h + deg, s, l)];
+}));
+const desatAll = c => Object.fromEntries(Object.entries(c).map(([k, v]) => {
+  const [h, s, l] = hexHsl(v); return [k, hslHex(h, s * 0.12, l)];
+}));
+
+const SKIN = '#F8C89A';
+const EXTRA = [
+  /* movie-style heroes & icons (original archetype designs) */
+  ['spiderhero', 'Spider Hero', HUMANOID, { C: '#C8102E', S: '#C8102E', H: '#7A0A1D', O: '#1F3BA6', B: '#26262B' }],
+  ['bathero', 'Bat Hero', CAPE, { C: '#33383F', S: SKIN, H: '#26262B', O: '#5A5F6B', B: '#F2C21F', P: '#26262B', E: '#26262B' }],
+  ['superguy', 'Super Guy', CAPE, { C: '#1F4FD1', S: SKIN, H: '#26262B', O: '#1F4FD1', B: '#C8102E', P: '#C8102E' }],
+  ['maskedmerc', 'Masked Merc', HUMANOID, { C: '#B02E2E', S: '#B02E2E', H: '#26262B', O: '#26262B', B: '#B7BDC9' }],
+  ['wolfclaws', 'Wolf Claws', HUMANOID, { C: '#F2C21F', S: SKIN, H: '#26262B', O: '#1F3BA6', B: '#F2C21F' }],
+  ['captainshield', 'Captain Shield', HUMANOID, { C: '#1F4FD1', S: SKIN, H: '#26262B', O: '#1F4FD1', B: '#C8102E' }],
+  ['ironsuit', 'Iron Suit', HUMANOID, { C: '#B02E2E', S: '#F2C21F', H: '#7A1D1D', O: '#B02E2E', B: '#F2C21F' }],
+  ['nightpanther', 'Night Panther', HUMANOID, { C: '#26262B', S: '#26262B', H: '#111318', O: '#26262B', B: '#B7BDC9' }],
+  ['seaking', 'Sea King', HUMANOID, { C: '#D6A25B', S: SKIN, H: '#8B6142', O: '#2E7550', B: '#F2C21F' }],
+  ['speedster', 'Speedster', HUMANOID, { C: '#C8102E', S: SKIN, H: '#7A0A1D', O: '#C8102E', B: '#F2C21F' }],
+  ['arrow', 'Arrow', HUMANOID, { C: '#2E7550', S: SKIN, H: '#3A2A1A', O: '#2E7550', B: '#26262B' }],
+  ['crimsonwitch', 'Crimson Witch', HUMANOID, { C: '#8E2438', S: SKIN, H: '#5A3A2A', O: '#8E2438', B: '#F2C21F' }],
+  ['sorcerer', 'Sorcerer', HUMANOID, { C: '#2E4A73', S: SKIN, H: '#3A3F4D', O: '#2E4A73', B: '#B02E2E' }],
+  ['hawkguy', 'Hawk Guy', HUMANOID, { C: '#5A5F6B', S: SKIN, H: '#8B6142', O: '#5A5F6B', B: '#B933AD' }],
+  ['widow', 'Widow', HUMANOID, { C: '#26262B', S: SKIN, H: '#B02E2E', O: '#26262B', B: '#F2C21F' }],
+  ['starcaptain', 'Star Captain', HUMANOID, { C: '#8E2438', S: SKIN, H: '#8B6142', O: '#3A3F4D', B: '#F2C21F' }],
+  ['thundergod', 'Thunder God', CAPE, { C: '#B7BDC9', S: SKIN, H: '#F2E5A0', O: '#3A3F4D', B: '#B7BDC9', P: '#B02E2E' }],
+  ['darklord', 'Dark Lord', CAPE, { C: '#111318', S: '#111318', H: '#0A0B0E', O: '#26262B', B: '#B02E2E', P: '#111318' }],
+  ['spaceknight', 'Space Knight', HUMANOID, { C: '#C9BFA8', S: SKIN, H: '#8B6142', O: '#C9BFA8', B: '#7ED17E' }],
+  ['hacker', 'Hacker', HUMANOID, { C: '#26262B', S: SKIN, H: '#111318', O: '#26262B', B: '#2FA84F' }],
+  ['secretagent', 'Secret Agent', HUMANOID, { C: '#26262B', S: SKIN, H: '#3A2A1A', O: '#33383F', B: '#B7BDC9' }],
+  ['adventurer', 'Adventurer', HUMANOID, { C: '#8B6142', S: SKIN, H: '#5F3F28', O: '#C9A886', B: '#3A2A1A' }],
+  ['cowboy', 'Cowboy', HUMANOID, { C: '#B08968', S: SKIN, H: '#5F3F28', O: '#3A5FA8', B: '#D6A25B' }],
+  ['boxer', 'Boxer', HUMANOID, { C: SKIN, S: SKIN, H: '#3A2A1A', O: '#B02E2E', B: '#F2C21F' }],
+  ['jetpilot', 'Jet Pilot', HUMANOID, { C: '#5F6B50', S: SKIN, H: '#3A2A1A', O: '#5F6B50', B: '#B7BDC9' }],
+  ['jester', 'Jester', HUMANOID, { C: '#2E7550', S: '#E8D5E0', H: '#2E7550', O: '#6B3FA0', B: '#B02E2E' }],
+  ['tramp', 'Tramp', HUMANOID, { C: '#26262B', S: SKIN, H: '#26262B', O: '#33383F', B: '#26262B' }],
+  ['boywizard', 'Boy Wizard', HUMANOID, { C: '#3A3F4D', S: SKIN, H: '#26262B', O: '#8E2438', B: '#F2C21F' }],
+  ['halfling', 'Halfling', HUMANOID, { C: '#5F7550', S: SKIN, H: '#8B6142', O: '#5F7550', B: '#D6A25B' }],
+  ['greywizard', 'Grey Wizard', HUMANOID, { C: '#8B929E', S: SKIN, H: '#CFCFD6', O: '#6E7580', B: '#C9A15F' }],
+  ['elfarcher', 'Elf Archer', HUMANOID, { C: '#5F7550', S: SKIN, H: '#F2E5A0', O: '#5F7550', B: '#B7BDC9' }],
+  ['vampire', 'Vampire', CAPE, { C: '#26262B', S: '#E8E2E8', H: '#111318', O: '#26262B', B: '#B02E2E', P: '#8E2438' }],
+  ['witch', 'Witch', CAPE, { C: '#26262B', S: '#9BC08A', H: '#111318', O: '#26262B', B: '#6B3FA0', P: '#26262B' }],
+  ['phantom', 'Phantom', CAPE, { C: '#E8ECF2', S: SKIN, H: '#26262B', O: '#26262B', B: '#B7BDC9', P: '#26262B' }],
+  ['king', 'King', CAPE, { C: '#F2C21F', S: SKIN, H: '#8B6142', O: '#8E2438', B: '#F2C21F', P: '#8E2438' }],
+  ['queen', 'Queen', CAPE, { C: '#F2C21F', S: SKIN, H: '#5A3A2A', O: '#6B3FA0', B: '#F2C21F', P: '#6B3FA0' }],
+  ['reaper', 'Reaper', CAPE, { C: '#26262B', S: '#B7BDC9', H: '#111318', O: '#26262B', B: '#B7BDC9', P: '#26262B' }],
+  ['devil', 'Devil', CAPE, { C: '#B02E2E', S: '#E05252', H: '#7A0A1D', O: '#B02E2E', B: '#26262B', P: '#7A0A1D', E: '#C8102E' }],
+  ['frankie', 'Frankie', HUMANOID, { C: '#26262B', S: '#9BC08A', H: '#26262B', O: '#33383F', B: '#8A8073' }],
+  ['mummy', 'Mummy', HUMANOID, { C: '#E8E2D0', S: '#D9D2BC', H: '#B8B09A', O: '#E8E2D0', B: '#B8B09A' }],
+  ['santa', 'Santa', HUMANOID, { C: '#C8102E', S: SKIN, H: '#FFFFFF', O: '#C8102E', B: '#F2C21F' }],
+  ['samurai', 'Samurai', HUMANOID, { C: '#B02E2E', S: SKIN, H: '#26262B', O: '#33383F', B: '#F2C21F' }],
+  ['viking', 'Viking', HUMANOID, { C: '#8B6142', S: SKIN, H: '#D6A25B', O: '#5A5F6B', B: '#B7BDC9' }],
+  ['knight', 'Knight', HUMANOID, { C: '#B7BDC9', S: '#B7BDC9', H: '#8B929E', O: '#B7BDC9', B: '#C8102E' }],
+  ['outlaw', 'Outlaw', HUMANOID, { C: '#2E7550', S: SKIN, H: '#8B6142', O: '#2E7550', B: '#8B6142' }],
+  ['chef', 'Chef', HUMANOID, { C: '#FFFFFF', S: SKIN, H: '#3A2A1A', O: '#FFFFFF', B: '#B02E2E' }],
+  ['doctor', 'Doctor', HUMANOID, { C: '#2E9E8E', S: SKIN, H: '#3A2A1A', O: '#E8ECF2', B: '#2E9E8E' }],
+  ['scientist', 'Scientist', HUMANOID, { C: '#E8ECF2', S: SKIN, H: '#8B929E', O: '#E8ECF2', B: '#3AA0E3' }],
+  ['firefighter', 'Firefighter', HUMANOID, { C: '#B02E2E', S: SKIN, H: '#26262B', O: '#F2C21F', B: '#B7BDC9' }],
+  ['cop', 'Cop', HUMANOID, { C: '#1F3BA6', S: SKIN, H: '#26262B', O: '#26262B', B: '#F2C21F' }],
+  ['builder', 'Builder', HUMANOID, { C: '#F2C21F', S: SKIN, H: '#3A2A1A', O: '#F28C28', B: '#B7BDC9' }],
+  ['sailor', 'Sailor', HUMANOID, { C: '#FFFFFF', S: SKIN, H: '#3A2A1A', O: '#1F3BA6', B: '#F2C21F' }],
+  ['rocker', 'Rocker', HUMANOID, { C: '#26262B', S: SKIN, H: '#6B3FA0', O: '#26262B', B: '#B7BDC9' }],
+  ['martian', 'Martian', HUMANOID, { C: '#7ED17E', S: '#9BE07E', H: '#2E5B2E', O: '#5A5F6B', B: '#B7BDC9' }],
+  ['skeleton', 'Skeleton', HUMANOID, { C: '#F5F5F5', S: '#F5F5F5', H: '#D9D9D9', O: '#F5F5F5', B: '#26262B' }],
+  ['mime', 'Mime', HUMANOID, { C: '#26262B', S: '#E8E2E8', H: '#26262B', O: '#26262B', B: '#FFFFFF' }],
+  /* fun animals */
+  ['wolf', 'Wolf', QUAD, { B: '#8E97A6', D: '#5F6673', W: '#E4E8ED', K: '#2B2B2B', N: '#26262B' }],
+  ['tiger', 'Tiger', QUAD, { B: '#E8935A', D: '#3A2A1A', W: '#FCE9D9', K: '#2B2B2B', N: '#26262B' }],
+  ['lion', 'Lion', QUAD, { B: '#D6A25B', D: '#8B6142', W: '#EDDBB8', K: '#2B2B2B', N: '#332A22' }],
+  ['raccoon', 'Raccoon', QUAD, { B: '#9AA5B1', D: '#26262B', W: '#E4E8ED', K: '#2B2B2B', N: '#26262B' }],
+  ['redpanda', 'Red Panda', QUAD, { B: '#C96A3A', D: '#4A2E1F', W: '#F2DFC4', K: '#2B2B2B', N: '#26262B' }],
+  ['sheep', 'Sheep', QUAD, { B: '#F0EBE0', D: '#3A3A45', W: '#FFFFFF', K: '#2B2B2B', N: '#3A3A45' }],
+  ['cow', 'Cow', QUAD, { B: '#F5F5F5', D: '#26262B', W: '#FFFFFF', K: '#2B2B2B', N: '#F2A8B8' }],
+  ['horse', 'Horse', QUAD, { B: '#8B6142', D: '#3A2A1A', W: '#C9A886', K: '#2B2B2B', N: '#332A22' }],
+  ['deer', 'Deer', QUAD, { B: '#C9A176', D: '#8B6D4A', W: '#F2E5CF', K: '#2B2B2B', N: '#332A22' }],
+  ['goat', 'Goat', QUAD, { B: '#D9D2C4', D: '#8E8574', W: '#F5F1E8', K: '#2B2B2B', N: '#332A22' }],
+  ['mouse', 'Mouse', QUAD, { B: '#B8B2BD', D: '#8E88A0', W: '#E8E4ED', K: '#2B2B2B', N: '#F2A8B8' }],
+  ['hamster', 'Hamster', QUAD, { B: '#E8C89A', D: '#C9A176', W: '#FCF0DC', K: '#2B2B2B', N: '#C96A80' }],
+  ['squirrel', 'Squirrel', QUAD, { B: '#B3592E', D: '#7A3A1B', W: '#F2DFC4', K: '#2B2B2B', N: '#332A22' }],
+  ['hedgehog', 'Hedgehog', QUAD, { B: '#A88B6D', D: '#5F4A35', W: '#E8D5B8', K: '#2B2B2B', N: '#332A22' }],
+  ['skunk', 'Skunk', QUAD, { B: '#26262B', D: '#F5F5F5', W: '#F5F5F5', K: '#2B2B2B', N: '#111318' }],
+  ['leopard', 'Leopard', QUAD, { B: '#E8C05A', D: '#8B6142', W: '#F7E8C4', K: '#2B2B2B', N: '#332A22' }],
+  ['polarbear', 'Polar Bear', QUAD, { B: '#F5F7FA', D: '#D9DEE8', W: '#FFFFFF', K: '#2B2B2B', N: '#26262B' }],
+  ['koala', 'Koala', QUAD, { B: '#9AA5B1', D: '#6E7987', W: '#E4E8ED', K: '#2B2B2B', N: '#26262B' }],
+  ['badger', 'Badger', QUAD, { B: '#6E7987', D: '#26262B', W: '#E4E8ED', K: '#2B2B2B', N: '#111318' }],
+  ['owl', 'Owl', BIRD, { B: '#8B6D4A', W: '#D9C9A8', O: '#F2C21F', K: '#2B2B2B' }],
+  ['toucan', 'Toucan', BIRD, { B: '#26262B', W: '#F2E5A0', O: '#F28C28', K: '#E8E8E8' }],
+  ['flamingo', 'Flamingo', BIRD, { B: '#F2A8B8', W: '#FCE0E6', O: '#26262B', K: '#2B2B2B' }],
+  ['crow', 'Crow', BIRD, { B: '#26262B', W: '#3A3F4D', O: '#4A4F58', K: '#E8E8E8' }],
+  ['robin', 'Robin', BIRD, { B: '#8B6D4A', W: '#E07E4B', O: '#F2C21F', K: '#2B2B2B' }],
+  ['bluejay', 'Blue Jay', BIRD, { B: '#4B8FD6', W: '#E8F0FA', O: '#26262B', K: '#2B2B2B' }],
+  ['seagull', 'Seagull', BIRD, { B: '#E8ECF2', W: '#FFFFFF', O: '#F2A33C', K: '#2B2B2B' }],
+  ['chick', 'Chick', BIRD, { B: '#F2E05A', W: '#FBF0C4', O: '#F28C28', K: '#2B2B2B' }],
+  ['parrot', 'Parrot', BIRD, { B: '#2FA84F', W: '#F2C21F', O: '#E04B3A', K: '#2B2B2B' }],
+  ['puffin', 'Puffin', BIRD, { B: '#26262B', W: '#F5F7FA', O: '#F28C28', K: '#E8E8E8' }],
+  ['trex', 'T-Rex', DINO, { G: '#7A9E52', K: '#233238' }],
+  ['raptor', 'Raptor', DINO, { G: '#4B8FA8', K: '#233238' }],
+  ['croc', 'Croc', DINO, { G: '#5F8A46', K: '#233238' }],
+  ['gecko', 'Gecko', DINO, { G: '#7ED17E', K: '#233238' }],
+  ['chameleon', 'Chameleon', DINO, { G: '#D1A24A', K: '#233238' }],
+  ['toad', 'Toad', FROG, { G: '#8B6142', W: '#D9C9A8', K: '#233238' }],
+  ['axolotl', 'Axolotl', FROG, { G: '#F2A8B8', W: '#FCE0E6', K: '#8E4A5B' }],
+  ['hare', 'Hare', BUNNY, { B: '#C9B8A8', P: '#E8C0CC', W: '#EDE4DA', K: '#2B2B2B' }],
+  ['lobster', 'Lobster', CRAB, { R: '#B02E2E', K: '#2B2B2B' }],
+  ['beetle', 'Beetle', CRAB, { R: '#3A3F4D', K: '#111318' }],
+  ['squid', 'Squid', OCTO, { P: '#E06A9B', K: '#5B2440' }],
+  ['jellyfish', 'Jellyfish', OCTO, { P: '#A8D8F0', K: '#5B7A8E' }],
+  ['spirit', 'Spirit', GHOST, { G: '#E6E9F2', K: '#8B93A6' }],
+  ['ember', 'Ember', GHOST, { G: '#E07E4B', K: '#5B2E1B' }],
+  ['bubble', 'Bubble', GHOST, { G: '#A8D8F0', K: '#3A5B73' }],
+  ['shadow', 'Shadow', GHOST, { G: '#3A3F4D', K: '#0F1114' }],
+];
+for (const [key, name, grids, colors] of EXTRA) {
+  const c = { T: TOOL, ...colors };
+  CHARACTERS[key] = {
+    name, grids, colors: c,
+    variants: [{}, shiftAll(c, 140), shiftAll(c, 250)],
+    gray: desatAll(c),
+  };
+}
+
 let charKey = localStorage.getItem('agentview-char');
 if (!CHARACTERS[charKey]) charKey = 'plumber';
 
@@ -1027,6 +1234,22 @@ for (const [key, def] of Object.entries(CHARACTERS)) {
 }
 pickBtn.replaceChildren(miniSprite(CHARACTERS[charKey]));
 pickBtn.onclick = () => pickMenu.classList.toggle('open');
+
+/* ---------- dark mode ---------- */
+const themeBtn = document.getElementById('themeBtn');
+function setDark(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  themeBtn.textContent = dark ? '☀' : '☾';
+}
+themeBtn.textContent = document.documentElement.classList.contains('dark') ? '☀' : '☾';
+themeBtn.onclick = () => {
+  const dark = !document.documentElement.classList.contains('dark');
+  localStorage.setItem('agentview-theme', dark ? 'dark' : 'light');
+  setDark(dark);
+};
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (m) => {
+  if (!localStorage.getItem('agentview-theme')) setDark(m.matches);
+});
 
 refreshMap().then(() => {
   const root = hubs.get('');
