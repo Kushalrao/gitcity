@@ -34,7 +34,7 @@
   #pickBtn:hover, .pickOpt:hover { transform: scale(1.12); box-shadow: 0 3px 12px rgba(0,0,0,0.15); }
   .pickOpt.selected { border: 2px solid #FF6319; }
   #pickMenu {
-    display: none; flex-wrap: wrap; gap: 8px; max-width: 260px;
+    display: none; flex-wrap: wrap; gap: 8px; max-width: 390px;
     animation: pickin 0.15s ease-out;
   }
   #pickMenu.open { display: flex; }
@@ -367,6 +367,88 @@ const F_SIT2 = [
 ];
 const FROG = { stand: F_STAND, run: [F_RUN1, F_RUN2], runCycle: [1, 2], work: [F_SIT1, F_SIT2] };
 
+/* bird — upright waddler (penguin / duck) */
+const B_STAND = [
+  '............','............','............','............',
+  '....BBBB....',
+  '...BBBBBB...',
+  '...BBBKBB...',
+  '...BBBBBOO..',
+  '..BBWWWWBB..',
+  '..BBWWWWBB..',
+  '..BBWWWWBB..',
+  '..BBWWWWBB..',
+  '..BBWWWWBB..',
+  '...BWWWWB...',
+  '...BBBBBB...',
+  '...OO..OO...',
+];
+const B_RUN1 = [...B_STAND.slice(0, 9), '.BBBWWWWBBB.', ...B_STAND.slice(10, 15), '..OO....OO..'];
+const B_RUN2 = [...B_STAND.slice(0, 9), '.BBBWWWWBBB.', ...B_STAND.slice(10, 15), '....OO..OO..'];
+const B_SIT1 = ['............','............','.........TT.','..........T.', ...B_STAND.slice(4, 15), '...OO..OO...'];
+const B_SIT2 = [...B_STAND.slice(0, 12), '..BBWWWWBBT.', '...BWWWWBTT.', ...B_STAND.slice(14)];
+const BIRD = { stand: B_STAND, run: [B_RUN1, B_RUN2], runCycle: [1, 2], work: [B_SIT1, B_SIT2] };
+
+/* bunny — tall ears, hops */
+const R_STAND = [
+  '............','............',
+  '...BB...BB..',
+  '...BP...BP..',
+  '...BB...BB..',
+  '...BBBBBB...',
+  '..BBBBBKBB..',
+  '..BBBBBBBP..',
+  '..BBBBBBBB..',
+  '.BBBWWWWBB..',
+  '.BBWWWWWWB..',
+  '.BBWWWWWWB..',
+  '..BBBBBBB...',
+  '..BB...BB...',
+  '..BB...BB...',
+  '.BBB...BBB..',
+];
+const R_RUN1 = [...R_STAND.slice(0, 13), '.BB......BB.', 'BB........BB', '............'];
+const R_RUN2 = [...R_STAND.slice(0, 13), '...BBBBB....', '..BBBBB.....', '............'];
+const R_SIT1 = ['.........TT.', '..........T.', ...R_STAND.slice(2)];
+const R_SIT2 = [...R_STAND.slice(0, 10), '.BBWWWWWWBT.', '.BBWWWWWWTT.', ...R_STAND.slice(12)];
+const BUNNY = { stand: R_STAND, run: [R_RUN1, R_RUN2], runCycle: [1, 2], work: [R_SIT1, R_SIT2] };
+
+/* crab — wide scuttler, snaps its claws at the file */
+const C_STAND = [
+  '............','............','............','............','............','............','............',
+  '..K......K..',
+  '..R......R..',
+  'RR.RRRRRR.RR',
+  'RRRRRRRRRRRR',
+  'RRRRRRRRRRRR',
+  '.RRRRRRRRRR.',
+  '..RRRRRRRR..',
+  '.R.R.RR.R.R.',
+  'R..R.RR.R..R',
+];
+const C_RUN2 = [...C_STAND.slice(0, 14), 'R..R.RR.R..R', '.R.R.RR.R.R.'];
+const C_SIT2 = [...C_STAND.slice(0, 9), 'RR.RRRRRRRRR', ...C_STAND.slice(10)];
+const CRAB = { stand: C_STAND, run: [C_RUN2], runCycle: [0, 1], work: [C_STAND, C_SIT2] };
+
+/* octopus — floats, tentacles wiggle */
+const O_STAND = [
+  '............','............','............','............',
+  '...PPPPPP...',
+  '..PPPPPPPP..',
+  '..PKPPPKPP..',
+  '..PPPPPPPP..',
+  '..PPPPPPPP..',
+  '..PPPPPPPP..',
+  '.PPPPPPPPPP.',
+  '.P.PP.PP.PP.',
+  'P.P..P..P..P',
+  '............','............','............',
+];
+const O_RUN1 = [...O_STAND.slice(0, 11), '.PP.PP.PP.P.', '.P..P..P..P.', ...O_STAND.slice(13)];
+const O_SIT1 = ['............','............','.........TT.','..........T.', ...O_STAND.slice(4)];
+const O_SIT2 = [...O_STAND.slice(0, 10), '.PPPPPPPPPPT', '.P.PP.PP.PTT', ...O_STAND.slice(12)];
+const OCTO = { stand: O_STAND, run: [O_RUN1], runCycle: [0, 1], work: [O_SIT1, O_SIT2] };
+
 const TOOL = '#9AA1AC';
 const CHARACTERS = {
   plumber: {
@@ -416,6 +498,104 @@ const CHARACTERS = {
     colors: { G: '#4FAE5C', W: '#DFF2D8', K: '#233238', T: TOOL },
     variants: [{}, { G: '#AE8F4F', W: '#F2E8D8' }, { G: '#4F8FAE', W: '#D8E8F2' }, { G: '#AE4F6E', W: '#F2D8E0' }],
     gray: { G: '#9AA0A6' },
+  },
+  /* fun animals */
+  fox: {
+    name: 'Fox', grids: QUAD,
+    colors: { B: '#E87A3E', D: '#B34F1B', W: '#FFF3E8', K: '#2B2B2B', N: '#332A22', T: TOOL },
+    variants: [{}, { B: '#C9CCD2', D: '#8E97A6' }, { B: '#8E5FA8', D: '#63417A' }],
+    gray: { B: '#A7A9AC', D: '#7E8083' },
+  },
+  pig: {
+    name: 'Pig', grids: QUAD,
+    colors: { B: '#F2A8B8', D: '#D87F95', W: '#FCE0E6', K: '#2B2B2B', N: '#C96A80', T: TOOL },
+    variants: [{}, { B: '#E8C8A8', D: '#C9A176' }, { B: '#B8B2AD', D: '#8E8883' }],
+    gray: { B: '#B8B2AD', D: '#8E8883' },
+  },
+  panda: {
+    name: 'Panda', grids: QUAD,
+    colors: { B: '#F5F5F5', D: '#26262B', W: '#FFFFFF', K: '#26262B', N: '#26262B', T: TOOL },
+    variants: [{}, { B: '#E8D5B8', D: '#6E4A2B' }, { B: '#D5E8F5', D: '#2B4A6E' }],
+    gray: { B: '#D9D9D9', D: '#7E8083' },
+  },
+  bear: {
+    name: 'Bear', grids: QUAD,
+    colors: { B: '#8B6142', D: '#5F3F28', W: '#C9A886', K: '#2B2B2B', N: '#332A22', T: TOOL },
+    variants: [{}, { B: '#F5F5F5', D: '#C9CCD2', W: '#FFFFFF' }, { B: '#3E3A36', D: '#26231F', W: '#8B7C6A' }],
+    gray: { B: '#A7A9AC', D: '#7E8083' },
+  },
+  penguin: {
+    name: 'Penguin', grids: BIRD,
+    colors: { B: '#2E3440', W: '#F5F7FA', O: '#F2A33C', K: '#E8E8E8', T: TOOL },
+    variants: [{}, { B: '#3E5C76' }, { B: '#5C3E76' }],
+    gray: { B: '#7E8083', W: '#D9D9D9' },
+  },
+  duck: {
+    name: 'Duck', grids: BIRD,
+    colors: { B: '#F2D14B', W: '#FBF0C4', O: '#F28C28', K: '#2B2B2B', T: TOOL },
+    variants: [{}, { B: '#F5F5F5', W: '#FFFFFF' }, { B: '#5FA8D1', W: '#CBE6F5' }],
+    gray: { B: '#C9CCD2', W: '#E8E8E8' },
+  },
+  bunny: {
+    name: 'Bunny', grids: BUNNY,
+    colors: { B: '#EDEDF2', P: '#F2A8C0', W: '#FFFFFF', K: '#2B2B2B', T: TOOL },
+    variants: [{}, { B: '#C9B8A8', W: '#EDE4DA' }, { B: '#B8B8C9', W: '#E4E4ED' }],
+    gray: { B: '#C9CCD2', W: '#E8E8E8' },
+  },
+  crab: {
+    name: 'Crab', grids: CRAB,
+    colors: { R: '#E04B3A', K: '#2B2B2B', T: TOOL },
+    variants: [{}, { R: '#3A8FE0' }, { R: '#E0A23A' }],
+    gray: { R: '#A7A9AC' },
+  },
+  octopus: {
+    name: 'Octopus', grids: OCTO,
+    colors: { P: '#9B5FB8', K: '#33203E', T: TOOL },
+    variants: [{}, { P: '#E06A9B' }, { P: '#5FB89B' }],
+    gray: { P: '#A7A9AC' },
+  },
+  /* classic cartoon archetypes */
+  hero: {
+    name: 'Hero', grids: HUMANOID,
+    colors: { C: '#1F4FD1', S: '#F8C89A', H: '#16307A', O: '#D12F2F', B: '#FFD45E', T: TOOL },
+    variants: [{}, { C: '#2FA84F', O: '#333333' }, { C: '#8E24AA', O: '#F2B705' }],
+    gray: { C: '#808183', O: '#9A9EA6' },
+  },
+  wizard: {
+    name: 'Wizard', grids: HUMANOID,
+    colors: { C: '#6B3FA0', S: '#F8C89A', H: '#CFCFD6', O: '#4B2E73', B: '#FFD45E', T: '#C9A15F' },
+    variants: [{}, { C: '#2E5E73', O: '#1F4250' }, { C: '#A03F3F', O: '#732E2E' }],
+    gray: { C: '#808183', O: '#9A9EA6' },
+  },
+  pirate: {
+    name: 'Pirate', grids: HUMANOID,
+    colors: { C: '#B02E2E', S: '#F8C89A', H: '#3A2A1A', O: '#33383F', B: '#FFD45E', T: '#B7BDC9' },
+    variants: [{}, { C: '#23262E' }, { C: '#2E6EB0' }],
+    gray: { C: '#808183' },
+  },
+  astro: {
+    name: 'Astronaut', grids: HUMANOID,
+    colors: { C: '#E8ECF2', S: '#7FB8D6', H: '#B8C0CC', O: '#DDE2EA', B: '#E33A3A', T: TOOL },
+    variants: [{}, { B: '#3AA0E3' }, { B: '#F2A33C' }],
+    gray: { C: '#C9CCD2', O: '#B8BDC6' },
+  },
+  zombie: {
+    name: 'Zombie', grids: HUMANOID,
+    colors: { C: '#5F7550', S: '#9BC08A', H: '#44573B', O: '#6E6455', B: '#8A8073', T: TOOL },
+    variants: [{}, { S: '#C0BA8A', C: '#75705F' }, { S: '#8AA8C0', C: '#506075' }],
+    gray: { C: '#808183', S: '#B0B4BA' },
+  },
+  dragon: {
+    name: 'Dragon', grids: DINO,
+    colors: { G: '#D14A4A', K: '#2B1B1B', T: TOOL },
+    variants: [{}, { G: '#4A6ED1' }, { G: '#D1A24A' }],
+    gray: { G: '#9AA0A6' },
+  },
+  slime: {
+    name: 'Slime', grids: GHOST,
+    colors: { G: '#7ED17E', K: '#2E5B2E', T: TOOL },
+    variants: [{}, { G: '#7EB8D1', K: '#2E4A5B' }, { G: '#D17EC4', K: '#5B2E52' }],
+    gray: { G: '#B0B4BA', K: '#5F6673' },
   },
 };
 let charKey = localStorage.getItem('agentview-char');
