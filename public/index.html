@@ -100,12 +100,15 @@
   #status { width: 7px; height: 7px; border-radius: 50%; background: #e05252; }
   #status.on { background: #2fbf62; box-shadow: 0 0 6px #2fbf6288; }
 
-  .trackline { stroke: var(--track); stroke-width: 3; stroke-linecap: round; fill: none; }
-  .dirlabel { font-size: 10.5px; fill: var(--label); font-family: ui-monospace, Menlo, monospace; }
-  .badge-letter { font-size: 10px; font-weight: 700; fill: #fff; }
-  .station { fill: var(--station); transition: fill 0.4s; }
-  .stlabel { font-size: 9.5px; fill: var(--stlabel); font-family: ui-monospace, Menlo, monospace; transition: fill 0.3s; }
-  .stlabel.active { fill: var(--fg); font-weight: 600; }
+  .signtext { font: 700 9px ui-monospace, Menlo, monospace; fill: #F2EFE4; }
+  .floorlabel { font: 8.5px ui-monospace, Menlo, monospace; fill: rgba(0,0,0,0.48); transition: fill 0.3s; }
+  .floorlabel.night { fill: rgba(255,255,255,0.55); }
+  .floorlabel.active { fill: #111; font-weight: 700; }
+  html.dark .floorlabel.active { fill: #fff; }
+  .floorglow { animation: glowpulse 0.9s ease-in-out infinite; pointer-events: none; }
+  @keyframes glowpulse { 0%,100% { opacity: 0.22; } 50% { opacity: 0.48; } }
+  .cloud { animation-name: drift; animation-timing-function: ease-in-out; animation-iteration-count: infinite; animation-direction: alternate; }
+  @keyframes drift { to { transform: translateX(70px); } }
 
   .agent { transition: opacity 0.3s; }
   .agent .sprite-g { filter: drop-shadow(0 1.5px 2px rgba(0,0,0,0.3)); }
@@ -139,12 +142,14 @@ const SVGNS = 'http://www.w3.org/2000/svg';
 const mapwrap = document.getElementById('mapwrap');
 const statusEl = document.getElementById('status');
 
-/* ---- radial map constants ---- */
-const RING = 150;      // distance from a folder hub to a subfolder hub
-const FILE_R0 = 52;    // first station's distance from its hub
-const FILE_DS = 42;    // spacing between stations on a spur
-const SECTOR_PAD = 0.05;
-const MARGIN = 140;
+/* ---- city constants: a building per folder, a floor per file ---- */
+const FLOOR_H = 26;      // one file = one floor
+const LOBBY_H = 34;      // ground floor with door, awning + folder sign
+const BW = 122;          // building width
+const GAPB = 26;         // gap between buildings (the ladder lives here)
+const GAPBLOCK = 150;    // park gap between top-level blocks
+const STREET_H = 104;    // sidewalk + road below the ground line
+const SKY_PAD = 260;     // sky headroom above the tallest tower
 
 /* ---- motion constants ---- */
 const SPEED = 120;     // cruise speed, px/s
@@ -880,112 +885,264 @@ const frameRows = def => {
 };
 
 let svg = null;
-let stations = new Map();  // file path -> {x, y, dir, dot, label, color}
-let hubs = new Map();      // dir key ('' = root) -> {x, y}
+let stations = new Map();  // file path -> {perchX, floorY, ladderX, glow, wins, label}
 let agents = new Map();
 let agentLayer = null;
+let GROUND = 600;          // y of the sidewalk agents run on
+let CITY = { spawnX: 90, width: 1200, height: 700 };
 
-/* ---------- radial layout ----------
-   Each folder is a hub. Its files run outward along a spur in the folder's
-   angular sector; each subfolder gets its own wedge and its hub sits one RING
-   further out. The whole codebase becomes a transit network radiating from root. */
-function computeLayout(root) {
-  const out = { hubs: [], rays: [], stations: [] };
-  let colorIdx = 0;
-  const weight = n => (n.children || []).reduce(
-    (w, c) => w + (c.type === 'file' ? 1 : weight(c)), 0);
+/* deterministic pseudo-random so the scenery is stable across rebuilds */
+const rnd = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+const night = () => document.documentElement.classList.contains('dark');
+const shade = (hex, sMul, lMul) => { const [h, s, l] = hexHsl(hex); return hslHex(h, Math.min(1, s * sMul), Math.min(1, l * lMul)); };
 
-  (function place(node, x, y, a0, a1) {
-    const key = node.path;
-    const color = LINE_COLORS[colorIdx++ % LINE_COLORS.length];
-    out.hubs.push({ key, x, y, color, name: key === '' ? '/' : key.split('/').pop() });
+/* warm cartoon-city wall palette */
+const WALLS = ['#E8654A', '#F2A055', '#6FA8B8', '#E8C177', '#9B8FC0', '#D98A8A', '#8FB98B', '#7FA3D1', '#D9A17E', '#C97FA8'];
 
-    const files = (node.children || []).filter(c => c.type === 'file');
-    const subs = (node.children || []).filter(c => c.type === 'dir' && weight(c) > 0);
-    const items = [];
-    if (files.length) items.push({ kind: 'files', w: files.length });
-    for (const s of subs) items.push({ kind: 'dir', node: s, w: Math.max(1, weight(s)) });
-    const totalW = items.reduce((s, i) => s + i.w, 0) || 1;
-
-    let a = a0;
-    for (const it of items) {
-      const span = (a1 - a0) * (it.w / totalW);
-      const mid = a + span / 2;
-      const dx = Math.cos(mid), dy = Math.sin(mid);
-      if (it.kind === 'files') {
-        const endD = FILE_R0 + (files.length - 1) * FILE_DS;
-        out.rays.push({ x1: x, y1: y, x2: x + (endD + 16) * dx, y2: y + (endD + 16) * dy, color });
-        files.forEach((f, j) => {
-          const d = FILE_R0 + j * FILE_DS;
-          out.stations.push({ path: f.path, name: f.name, x: x + d * dx, y: y + d * dy, dir: key, color });
-        });
-      } else {
-        const bx = x + RING * dx, by = y + RING * dy;
-        out.rays.push({ x1: x, y1: y, x2: bx, y2: by, color: 'connector' });
-        place(it.node, bx, by, a + SECTOR_PAD, a + span - SECTOR_PAD);
-      }
-      a += span;
+/* ---------- the city: every folder a building, every file a floor ---------- */
+function flattenDirs(root) {
+  const dirs = [];
+  (function walk(n) {
+    const files = (n.children || []).filter(c => c.type === 'file');
+    if (files.length || n.path === '') {
+      dirs.push({ key: n.path, name: n.path === '' ? '/' : n.path.split('/').pop(), full: n.path === '' ? '/' : n.path, files });
     }
-  })(root, 0, 0, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2);
-  return out;
+    for (const d of (n.children || []).filter(c => c.type === 'dir')) walk(d);
+  })(root);
+  return dirs;
 }
 
 function buildMap(root) {
-  const L = computeLayout(root);
-  const xs = [], ys = [];
-  for (const h of L.hubs) { xs.push(h.x); ys.push(h.y); }
-  for (const r of L.rays) { xs.push(r.x1, r.x2); ys.push(r.y1, r.y2); }
-  for (const s of L.stations) { xs.push(s.x); ys.push(s.y); }
-  const minX = Math.min(...xs) - MARGIN, maxX = Math.max(...xs) + MARGIN;
-  const minY = Math.min(...ys) - MARGIN, maxY = Math.max(...ys) + MARGIN;
-  const ox = -minX, oy = -minY;
-  const width = Math.max(maxX - minX, mapwrap.clientWidth);
-  const height = Math.max(maxY - minY, mapwrap.clientHeight);
+  const dirs = flattenDirs(root);
+  const N = night();
+  const maxFloors = Math.max(1, ...dirs.map(d => d.files.length));
+  const cityH = LOBBY_H + maxFloors * FLOOR_H + 100;
+  const height = Math.max(SKY_PAD + cityH + STREET_H, mapwrap.clientHeight);
+  GROUND = height - STREET_H;
+
+  // lay buildings along the street; a park separates top-level blocks
+  let x = 190;
+  const placed = [], parks = [];
+  let lastTop = null;
+  for (const d of dirs) {
+    const topKey = d.key === '' ? '/' : d.key.split('/')[0];
+    if (lastTop !== null && topKey !== lastTop) { parks.push(x + 6); x += GAPBLOCK; }
+    lastTop = topKey;
+    placed.push({ ...d, x });
+    x += BW + GAPB;
+  }
+  const width = Math.max(x + 280, mapwrap.clientWidth);
 
   const oldAgents = [...agents.values()];
   stations = new Map();
-  hubs = new Map();
   mapwrap.replaceChildren();
   svg = el('svg', { width, height, viewBox: `0 0 ${width} ${height}` });
   mapwrap.appendChild(svg);
+  CITY = { spawnX: 96, width, height };
 
-  // tracks first (under everything)
-  for (const r of L.rays) {
-    el('line', { class: 'trackline', x1: r.x1 + ox, y1: r.y1 + oy, x2: r.x2 + ox, y2: r.y2 + oy }, svg);
-  }
-  // stations
-  for (const s of L.stations) {
-    const x = s.x + ox, y = s.y + oy;
-    const dot = el('circle', { class: 'station', cx: x, cy: y, r: 4 }, svg);
-    el('title', {}, dot).textContent = s.path;
-    const label = el('text', {
-      class: 'stlabel', x: x + 6, y: y + 13,
-      transform: `rotate(30 ${x + 6} ${y + 13})`,
-    }, svg);
-    label.textContent = s.name.length > 18 ? s.name.slice(0, 17) + '…' : s.name;
-    stations.set(s.path, { x, y, dir: s.dir, dot, label, color: s.color });
-  }
-  // hubs on top of tracks
-  for (const h of L.hubs) {
-    const x = h.x + ox, y = h.y + oy;
-    el('circle', { cx: x, cy: y, r: 9, fill: h.color }, svg);
-    const letter = el('text', { class: 'badge-letter', x, y: y + 3.5, 'text-anchor': 'middle' }, svg);
-    letter.textContent = h.name[0].toUpperCase();
-    const lbl = el('text', { class: 'dirlabel', x, y: y - 15, 'text-anchor': 'middle' }, svg);
-    lbl.textContent = h.name;
-    el('title', {}, lbl).textContent = h.key === '' ? '/' : h.key;
-    hubs.set(h.key, { x, y });
-  }
+  drawSky(width, height, N);
+  drawBackdrop(width, N);
+  drawStreet(width, height, N);
+  for (const px of parks) drawPark(px, N);
+  placed.forEach((b, i) => drawBuilding(b, i, N));
 
   agentLayer = el('g', {}, svg);
-  const rootHub = hubs.get('');
   for (const a of oldAgents) {
     agentLayer.appendChild(a.g);
     const st = a.lastFile && stations.get(a.lastFile);
-    if (st) { a.x = st.x; a.y = st.y; }
-    else if (rootHub) { a.x = rootHub.x; a.y = rootHub.y; }
+    if (st && a.state === 'working') { a.x = st.perchX; a.y = st.floorY; a.ladderX = st.ladderX; }
+    else { a.x = Math.min(a.x, width - 60); a.y = GROUND; }
     a.moveTo(a.x, a.y);
   }
+}
+
+function drawSky(w, h, N) {
+  const defs = el('defs', {}, svg);
+  const grad = el('linearGradient', { id: 'sky', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+  const stops = N
+    ? [['0%', '#0E1526'], ['70%', '#1D2B45'], ['100%', '#2E3A55']]
+    : [['0%', '#8FD0F0'], ['60%', '#BEE3F5'], ['100%', '#F2EAD8']];
+  for (const [o, c] of stops) el('stop', { offset: o, 'stop-color': c }, grad);
+  el('rect', { x: 0, y: 0, width: w, height: h, fill: 'url(#sky)' }, svg);
+
+  if (N) {
+    for (let i = 0; i < w / 16; i++) {
+      el('circle', {
+        cx: rnd(i) * w, cy: rnd(i + 999) * (GROUND - 340),
+        r: rnd(i + 55) * 1.3 + 0.4, fill: '#E8F0FF', opacity: (0.3 + rnd(i + 7) * 0.6).toFixed(2),
+      }, svg);
+    }
+    el('circle', { cx: 260, cy: 130, r: 36, fill: '#F2EFD9' }, svg);
+    el('circle', { cx: 248, cy: 120, r: 7, fill: '#DCD9C0' }, svg);
+    el('circle', { cx: 274, cy: 142, r: 5, fill: '#DCD9C0' }, svg);
+    el('circle', { cx: 260, cy: 150, r: 3.5, fill: '#DCD9C0' }, svg);
+  } else {
+    const sx = 260, sy = 140;
+    for (let i = 0; i < 8; i++) {
+      const ang = i * Math.PI / 4;
+      el('line', {
+        x1: sx + Math.cos(ang) * 54, y1: sy + Math.sin(ang) * 54,
+        x2: sx + Math.cos(ang) * 72, y2: sy + Math.sin(ang) * 72,
+        stroke: '#FFD34D', 'stroke-width': 6, 'stroke-linecap': 'round',
+      }, svg);
+    }
+    el('circle', { cx: sx, cy: sy, r: 42, fill: '#FFD34D' }, svg);
+    el('circle', { cx: sx, cy: sy, r: 33, fill: '#FFE28A' }, svg);
+  }
+
+  for (let i = 0; i < Math.max(3, w / 480); i++) {
+    const cx = 150 + rnd(i * 3 + 1) * (w - 300), cy = 60 + rnd(i * 7 + 2) * 170;
+    const col = N ? '#26334D' : '#FFFFFF';
+    const op = N ? 0.8 : 0.95;
+    const c = el('g', { class: 'cloud', style: `animation-duration:${70 + rnd(i) * 60}s; animation-delay:-${rnd(i + 3) * 60}s` }, svg);
+    el('ellipse', { cx, cy, rx: 48, ry: 17, fill: col, opacity: op }, c);
+    el('ellipse', { cx: cx - 28, cy: cy + 6, rx: 26, ry: 12, fill: col, opacity: op }, c);
+    el('ellipse', { cx: cx + 30, cy: cy + 7, rx: 30, ry: 13, fill: col, opacity: op }, c);
+  }
+}
+
+function drawBackdrop(w, N) {
+  const col = N ? '#222E48' : '#C4DCEA';
+  for (let i = 0; i < w / 88; i++) {
+    const bw = 52 + rnd(i + 21) * 60, bh = 130 + rnd(i + 43) * 230;
+    const bx = i * 88 + rnd(i) * 30;
+    el('rect', { x: bx, y: GROUND - bh, width: bw, height: bh, fill: col, opacity: 0.55 }, svg);
+    if (N && rnd(i + 5) > 0.35) {
+      for (let j = 0; j < 6; j++) {
+        el('rect', {
+          x: bx + 6 + rnd(i * 9 + j) * (bw - 14), y: GROUND - bh + 12 + rnd(i * 7 + j * 3) * (bh - 34),
+          width: 4, height: 5, fill: '#FFD98A', opacity: 0.55,
+        }, svg);
+      }
+    }
+  }
+}
+
+function drawStreet(w, h, N) {
+  el('rect', { x: 0, y: GROUND, width: w, height: 26, fill: N ? '#3A4152' : '#D9D3C8' }, svg);
+  el('rect', { x: 0, y: GROUND, width: w, height: 4, fill: N ? '#4A5266' : '#EBE6DC' }, svg);
+  const roadY = GROUND + 26, roadH = h - roadY;
+  el('rect', { x: 0, y: roadY, width: w, height: roadH, fill: N ? '#232936' : '#5F6673' }, svg);
+  for (let dx = 20; dx < w; dx += 72) {
+    el('rect', { x: dx, y: roadY + roadH / 2 - 3, width: 36, height: 6, rx: 3, fill: N ? '#8A93A6' : '#F2E9C8' }, svg);
+  }
+  for (let i = 0; i < w / 620; i++) {
+    const cx = 320 + i * 620 + rnd(i + 77) * 220;
+    drawCar(cx, roadY + 26, WALLS[Math.floor(rnd(i + 13) * WALLS.length)], rnd(i + 2) > 0.5, N);
+  }
+}
+
+function drawCar(x, y, col, flipped, N) {
+  const g = el('g', { transform: `translate(${x} ${y})${flipped ? ' scale(-1 1)' : ''}` }, svg);
+  const body = N ? shade(col, 0.8, 0.5) : col;
+  el('rect', { x: -34, y: -14, width: 68, height: 16, rx: 8, fill: body }, g);
+  el('rect', { x: -18, y: -27, width: 35, height: 16, rx: 7, fill: body }, g);
+  el('rect', { x: -14, y: -24, width: 12, height: 10, rx: 3, fill: N ? '#FFE9AE' : '#CFE8F7' }, g);
+  el('rect', { x: 3, y: -24, width: 11, height: 10, rx: 3, fill: N ? '#FFE9AE' : '#CFE8F7' }, g);
+  el('circle', { cx: -20, cy: 4, r: 7, fill: '#2B2F3A' }, g);
+  el('circle', { cx: 20, cy: 4, r: 7, fill: '#2B2F3A' }, g);
+  el('circle', { cx: -20, cy: 4, r: 3, fill: '#8A93A6' }, g);
+  el('circle', { cx: 20, cy: 4, r: 3, fill: '#8A93A6' }, g);
+}
+
+function drawPark(x, N) {
+  drawTree(x + 34, GROUND, 1 + rnd(x) * 0.35, N);
+  drawBush(x + 92, GROUND, N);
+  drawLamp(x + 124, GROUND, N);
+}
+function drawTree(x, gy, s, N) {
+  const g = el('g', { transform: `translate(${x} ${gy}) scale(${s})` }, svg);
+  el('rect', { x: -5, y: -48, width: 10, height: 48, rx: 3, fill: N ? '#4A3A2E' : '#8B6142' }, g);
+  const leaf = N ? '#2E4A3C' : '#9CCB6B', leaf2 = N ? '#3A5C4A' : '#B7DC8B';
+  el('circle', { cx: 0, cy: -68, r: 27, fill: leaf }, g);
+  el('circle', { cx: -19, cy: -53, r: 18, fill: leaf }, g);
+  el('circle', { cx: 19, cy: -53, r: 18, fill: leaf }, g);
+  el('circle', { cx: 0, cy: -62, r: 14, fill: leaf2 }, g);
+}
+function drawBush(x, gy, N) {
+  el('ellipse', { cx: x, cy: gy - 8, rx: 21, ry: 11, fill: N ? '#2E4A3C' : '#9CCB6B' }, svg);
+  el('ellipse', { cx: x + 15, cy: gy - 6, rx: 12, ry: 8, fill: N ? '#3A5C4A' : '#B7DC8B' }, svg);
+}
+function drawLamp(x, gy, N) {
+  el('rect', { x: x - 2, y: gy - 66, width: 4, height: 66, fill: '#3A4152' }, svg);
+  el('circle', { cx: x, cy: gy - 70, r: 6, fill: N ? '#FFE28A' : '#D9DEE8' }, svg);
+  if (N) el('circle', { cx: x, cy: gy - 70, r: 16, fill: '#FFE28A', opacity: 0.16 }, svg);
+}
+
+function drawBuilding(b, i, N) {
+  const x = b.x, w = BW, floors = b.files.length;
+  const hgt = LOBBY_H + floors * FLOOR_H + 10;
+  const top = GROUND - hgt;
+  let wall = WALLS[i % WALLS.length];
+  if (N) wall = shade(wall, 0.78, 0.42);
+  const trim = shade(wall, 1.05, N ? 0.72 : 0.7);
+  const g = el('g', {}, svg);
+
+  el('rect', { x, y: top, width: w, height: hgt, fill: wall }, g);
+  el('rect', { x: x - 5, y: top - 8, width: w + 10, height: 12, rx: 3, fill: trim }, g);
+
+  // rooftop character: water tower / antenna / AC unit
+  const r = rnd(i * 17 + 3);
+  if (r > 0.62) {
+    el('rect', { x: x + w - 46, y: top - 44, width: 4, height: 38, fill: trim }, g);
+    el('rect', { x: x + w - 22, y: top - 44, width: 4, height: 38, fill: trim }, g);
+    el('rect', { x: x + w - 50, y: top - 74, width: 36, height: 33, rx: 4, fill: N ? '#4A3A2E' : '#A8795A' }, g);
+    el('path', { d: `M ${x + w - 52} ${top - 74} L ${x + w - 32} ${top - 90} L ${x + w - 12} ${top - 74} Z`, fill: N ? '#3A2E24' : '#8B6142' }, g);
+  } else if (r > 0.3) {
+    el('rect', { x: x + 18, y: top - 38, width: 3, height: 32, fill: trim }, g);
+    el('circle', { cx: x + 19.5, cy: top - 40, r: 4, fill: N ? '#FF6B6B' : trim }, g);
+  } else {
+    el('rect', { x: x + w - 38, y: top - 20, width: 26, height: 14, rx: 2, fill: trim }, g);
+  }
+
+  // floors, bottom-up: one per file
+  b.files.forEach((f, fi) => {
+    const fy = GROUND - LOBBY_H - (fi + 1) * FLOOR_H;
+    stations.set(f.path, drawFloor(g, i, fi, f, x, w, fy, wall, trim, N));
+  });
+
+  // lobby: door with awning + folder sign
+  const dx = x + w - 42;
+  el('rect', { x: dx, y: GROUND - 27, width: 22, height: 27, rx: 2, fill: shade(wall, 1, 0.5) }, g);
+  el('circle', { cx: dx + 17, cy: GROUND - 13, r: 1.8, fill: '#FFD98A' }, g);
+  for (let s = 0; s < 5; s++) {
+    el('rect', { x: dx - 5 + s * 6.6, y: GROUND - 34, width: 6.6, height: 8, fill: s % 2 ? (N ? '#8A93A6' : '#F2EFE4') : trim }, g);
+  }
+  const sw = Math.min(w - 16, 11 + b.name.length * 6.4);
+  el('rect', { x: x + 6, y: GROUND - LOBBY_H + 3, width: sw, height: 14, rx: 4, fill: N ? '#101828' : '#2B2F3A' }, g);
+  const t = el('text', { class: 'signtext', x: x + 11, y: GROUND - LOBBY_H + 13.5 }, g);
+  t.textContent = b.name;
+  el('title', {}, t).textContent = b.full;
+
+  // exterior ladder in the alley on the left
+  const lx = x - 12;
+  const lcol = N ? '#5A6273' : '#7A828F';
+  el('rect', { x: lx - 5, y: top, width: 2.6, height: hgt, fill: lcol }, g);
+  el('rect', { x: lx + 3, y: top, width: 2.6, height: hgt, fill: lcol }, g);
+  for (let ry = top + 6; ry < GROUND - 4; ry += 9) {
+    el('rect', { x: lx - 5, y: ry, width: 10.6, height: 2.2, fill: lcol }, g);
+  }
+}
+
+function drawFloor(g, bi, fi, f, x, w, fy, wall, trim, N) {
+  el('rect', { x, y: fy + FLOOR_H - 2, width: w, height: 2, fill: shade(wall, 1, 0.85), opacity: 0.7 }, g);
+  const wins = [];
+  for (let wi = 0; wi < 2; wi++) {
+    const lit = N && rnd(bi * 131 + fi * 17 + wi * 7) > 0.55;
+    wins.push(el('rect', {
+      x: x + 10 + wi * 20, y: fy + 5, width: 14, height: FLOOR_H - 11, rx: 2,
+      fill: lit ? '#FFD98A' : (N ? '#25314A' : '#D6ECF7'),
+      stroke: trim, 'stroke-width': 1.2,
+    }, g));
+  }
+  const label = el('text', { class: 'floorlabel' + (N ? ' night' : ''), x: x + 52, y: fy + FLOOR_H / 2 + 3 }, g);
+  label.textContent = f.name.length > 11 ? f.name.slice(0, 10) + '…' : f.name;
+  el('title', {}, label).textContent = f.path;
+  const glow = el('rect', {
+    class: 'floorglow', x: x + 2, y: fy + 2, width: w - 4, height: FLOOR_H - 4, rx: 4,
+    fill: '#FFD98A', visibility: 'hidden',
+  }, g);
+  return { perchX: x + w / 2, floorY: fy + FLOOR_H - 2, ladderX: x - 12, glow, wins, label };
 }
 
 async function refreshMap() {
@@ -995,27 +1152,27 @@ async function refreshMap() {
 let refreshTimer = null;
 function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshMap, 800); }
 
-/* ---------- routing along the track network (it's a tree — unique path) ---------- */
-function parentOf(key) {
-  if (key === '') return null;
-  return key.includes('/') ? key.slice(0, key.lastIndexOf('/')) : '';
-}
-function chainOf(key) {
-  const c = [];
-  for (let p = key; p !== null; p = parentOf(p)) c.unshift(p);
-  return c;  // root-first
-}
-function routeVia(a, targetDir, tx, ty) {
-  const srcSt = a.lastFile && stations.get(a.lastFile);
-  const srcDir = srcSt ? srcSt.dir : '';
-  const A = chainOf(srcDir), B = chainOf(targetDir);
-  let i = 0;
-  while (i < A.length && i < B.length && A[i] === B[i]) i++;
-  const seq = [...A.slice(i).reverse(), A[i - 1], ...B.slice(i)];
-  const pts = [{ x: a.x, y: a.y }];
-  for (const k of seq) { const h = hubs.get(k); if (h) pts.push({ x: h.x, y: h.y }); }
-  pts.push({ x: tx, y: ty });
+/* ---------- routing: run the street, climb the ladder ---------- */
+function dedupe(pts) {
   return pts.filter((p, j) => j === 0 || Math.hypot(p.x - pts[j-1].x, p.y - pts[j-1].y) > 0.5);
+}
+function descendPts(a) {
+  if (a.y < GROUND - 2) {
+    const lx = a.ladderX ?? a.x;
+    return [{ x: lx, y: a.y }, { x: lx, y: GROUND }];  // back to the ladder, climb down
+  }
+  return [];
+}
+function routeVia(a, st) {
+  return dedupe([
+    { x: a.x, y: a.y }, ...descendPts(a),
+    { x: st.ladderX, y: GROUND },
+    { x: st.ladderX, y: st.floorY },
+    { x: st.perchX, y: st.floorY },
+  ]);
+}
+function routeGround(a, tx) {
+  return dedupe([{ x: a.x, y: a.y }, ...descendPts(a), { x: tx, y: GROUND }]);
 }
 
 /* ---------- agents ---------- */
@@ -1053,11 +1210,10 @@ function makeAgent(id) {
   const bubbleBg = el('rect', { class: 'bubble-bg', y: bubbleY, height: 22, rx: 11 }, bubble);
   const bubbleText = el('text', { class: 'bubble-text', y: bubbleY + 15 }, bubble);
 
-  // main starts at the root hub; kids pop out of the main agent
+  // main walks in from the edge of town; kids pop out at street level below the main agent
   const main = mainId && agents.get(mainId);
-  const home = hubs.get('') || { x: 100, y: 100 };
-  const sx = isKid && main ? main.x : home.x;
-  const sy = isKid && main ? main.y : home.y;
+  const sx = isKid && main ? main.x : CITY.spawnX;
+  const sy = GROUND;
 
   const a = {
     id, g, bubble, bubbleBg, bubbleText, flip, pose, isKid,
@@ -1121,19 +1277,16 @@ function startNext(a) {
   if (!st) { scheduleRefresh(); return; }
   a.job = job;
   a.returning = false;
-  beginPath(a, routeVia(a, st.dir, st.x, st.y));
-  ensureVisible(st.x, st.y);
+  beginPath(a, routeVia(a, st));
+  ensureVisible(st.perchX, st.floorY);
 }
 
-/* Sub-agent finished — run home to the main agent and disappear into them. */
+/* Sub-agent finished — run back down the street to the main agent and vanish. */
 function startReturn(a) {
   const main = mainId && agents.get(mainId);
-  const target = main
-    ? (main.lastFile && stations.get(main.lastFile)) || { dir: '', ...(hubs.get('') || { x: a.x, y: a.y }) }
-    : { dir: '', ...(hubs.get('') || { x: a.x, y: a.y }) };
   a.returning = true;
   a.job = null;
-  beginPath(a, routeVia(a, target.dir, target.x, target.y));
+  beginPath(a, routeGround(a, main ? main.x : CITY.spawnX));
 }
 
 function despawn(a) {
@@ -1157,11 +1310,16 @@ function arrive(a) {
   a.say(job.verbText, job.verbClass, job.file);
 
   if (st) {
-    st.dot.setAttribute('fill', st.color);
-    st.dot.setAttribute('r', 5);
+    a.ladderX = st.ladderX;
+    a.face(1);
+    st.glow.setAttribute('visibility', 'visible');
+    st.wins.forEach(wn => wn.setAttribute('fill', '#FFD98A'));   // the floor lights up
     st.label.classList.add('active');
-    clearTimeout(st.labelTimer);
-    st.labelTimer = setTimeout(() => st.label.classList.remove('active'), 4000);
+    clearTimeout(st.glowTimer);
+    st.glowTimer = setTimeout(() => {
+      st.glow.setAttribute('visibility', 'hidden');
+      st.label.classList.remove('active');
+    }, DWELL + 300);
   }
 }
 
@@ -1172,7 +1330,9 @@ function tick(ts) {
   lastTs = ts;
   for (const a of [...agents.values()]) {
     if (a.state === 'moving') {
-      const cruise = SPEED * (a.queue.length > 2 ? HURRY : 1);
+      const s0 = a.path[a.seg], s1 = a.path[Math.min(a.seg + 1, a.path.length - 1)];
+      const onLadder = Math.abs(s1.x - s0.x) < 0.5 && Math.abs(s1.y - s0.y) > 0.5;
+      const cruise = SPEED * (onLadder ? 0.55 : 1) * (a.queue.length > 2 ? HURRY : 1);
       const brake = Math.sqrt(2 * ACCEL * Math.max(0, a.remaining));
       a.vel = Math.min(a.vel + ACCEL * dt, cruise, Math.max(brake, 26));
       let step = a.vel * dt;
@@ -1194,14 +1354,20 @@ function tick(ts) {
         arrive(a);
       } else {
         const p0 = a.path[a.seg], p1 = a.path[a.seg + 1];
-        const dir = Math.sign(p1.x - p0.x);
-        if (dir) a.face(dir);
+        const vertical = Math.abs(p1.x - p0.x) < 0.5;
         const rate = (a.vel / SPEED) * a.gait;
-        a.animT += dt * rate;
+        a.animT += dt * rate * (vertical ? 0.7 : 1);
         a.setFrame(a.runCycle[Math.floor(a.animT * RUN_FPS) % a.runCycle.length]);
-        const lean = 8 * Math.min(1, a.vel / SPEED);
-        const bob = -Math.abs(Math.sin(a.animT * RUN_FPS * Math.PI / 2)) * 4.4;
-        a.setPose(lean, bob);
+        if (vertical) {
+          a.face(1);            // climbing the ladder: upright, hands-and-feet cadence
+          a.setPose(0, 0);
+        } else {
+          const dir = Math.sign(p1.x - p0.x);
+          if (dir) a.face(dir);
+          const lean = 8 * Math.min(1, a.vel / SPEED);
+          const bob = -Math.abs(Math.sin(a.animT * RUN_FPS * Math.PI / 2)) * 4.4;
+          a.setPose(lean, bob);
+        }
         a.moveTo(p0.x + (p1.x - p0.x) * a.segT, p0.y + (p1.y - p0.y) * a.segT);
       }
     } else if (a.state === 'working') {
@@ -1295,6 +1461,7 @@ const themeBtn = document.getElementById('themeBtn');
 function setDark(dark) {
   document.documentElement.classList.toggle('dark', dark);
   themeBtn.textContent = dark ? '☀' : '☾';
+  if (svg) refreshMap();   // repaint the city: day ↔ night
 }
 themeBtn.textContent = document.documentElement.classList.contains('dark') ? '☀' : '☾';
 themeBtn.onclick = () => {
@@ -1307,11 +1474,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (m) => {
 });
 
 refreshMap().then(() => {
-  const root = hubs.get('');
-  if (root) mapwrap.scrollTo({
-    left: root.x - mapwrap.clientWidth / 2,
-    top: root.y - mapwrap.clientHeight / 2,
-  });
+  mapwrap.scrollTo({ left: 0, top: CITY.height });   // street level, edge of town
   connect();
 });
 </script>
