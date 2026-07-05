@@ -2232,38 +2232,36 @@ function spriteFramesFor(a) {
   return frames;
 }
 function followAgent(id) {
+  camOn();
   followId = id;
-  R3.active = true;
-  R3.sprites.clear();
-  const a = agents.get(id);
-  if (a && a.iso) { const w = worldPosOf(a); R3.yaw = Math.atan2(0.01, 1); void w; }
-  if (!R3.cnv) {
-    R3.cnv = document.getElementById('rideView');
-    R3.ctx = R3.cnv.getContext('2d');
-    R3.cnv.addEventListener('pointerdown', () => exitToOverview());
-    R3.cnv.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      R3.dist = Math.min(4.5, Math.max(1.3, R3.dist * Math.exp(e.deltaY * 0.001)));
-    }, { passive: false });
-  }
-  const dpr = window.devicePixelRatio || 1;
-  R3.cnv.width = innerWidth * dpr; R3.cnv.height = innerHeight * dpr;
-  R3.cnv.style.display = 'block';
-  mapwrap.style.visibility = 'hidden';
+  CULL.on = true;
+  applyRotation();   // rebuild into the ride bubble (tiny scene = fast re-bakes)
+  document.getElementById('rideVeil').style.display = 'block';
   const hud = followHudEl();
-  hud.textContent = `⌖ street view: riding with ${id} — click or press Esc to fly back up`;
+  hud.textContent = `⌖ riding with ${id} — click ground to hop off here, Esc to fly back out`;
   hud.style.display = 'block';
 }
-function dismount() { exitToOverview(); }
-function exitToOverview() {
+function endRide() {
   followId = null;
-  if (R3.active) {
+  CULL.on = false;
+  if (R3.active) {   // if the dormant street view was on, hand back cleanly
     R3.active = false;
     R3.cnv.style.display = 'none';
     mapwrap.style.visibility = 'visible';
   }
-  cam.freeZoom = false;
   followHudEl().style.display = 'none';
+  document.getElementById('rideVeil').style.display = 'none';
+  AZ = vAZ;
+  applyRotation();   // restore the full city
+}
+function dismount() {   // hop off but STAY down in the city
+  const keep = cam.z > 1.05;
+  endRide();
+  cam.freeZoom = keep;
+}
+function exitToOverview() {
+  endRide();
+  cam.freeZoom = false;
 }
 function renderRide(dt) {
   const a = agents.get(followId);
