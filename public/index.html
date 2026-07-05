@@ -67,7 +67,7 @@
   }
   #rideVeil {
     position: fixed; inset: 0; z-index: 5; display: none; pointer-events: none;
-    background: radial-gradient(ellipse 64% 56% at 50% 72%, transparent 52%, var(--bg) 94%);
+    background: radial-gradient(ellipse 66% 58% at 50% 78%, transparent 54%, var(--bg) 95%);
   }
 
   #picker {
@@ -2164,7 +2164,7 @@ function tick(ts) {
 requestAnimationFrame(tick);
 
 /* ---------- the camera: zoom deep into the city, ride agents, walk the streets ---------- */
-let followId = null, followZ = 4.8;
+let followId = null, followZ = 5.6;
 const cam = { x: 0, y: 0, z: 1, ay: 0.62, active: false, freeZoom: false };
 const followHudEl = () => document.getElementById('followHud');
 function camOn() {
@@ -2209,13 +2209,13 @@ function updateCamera(dt) {
   if (!cam.active) return;
   const step0 = dt || 0.016;
   const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  cam.ay += ((followId ? 0.8 : 0.62) - cam.ay) * 0.05;   // chase-cam sits behind/below the agent
+  cam.ay += ((followId ? 0.86 : 0.62) - cam.ay) * 0.05;   // chase-cam sits low, right behind the agent
   if (followId) {
     const a = agents.get(followId);
     if (!a) dismount();
     else {
       cam.x += (a.x - cam.x) * 0.10;
-      cam.y += ((a.y - 30) - cam.y) * 0.10;
+      cam.y += ((a.y - 16) - cam.y) * 0.10;
       cam.z += (followZ - cam.z) * 0.07;
       // steer smoothly in behind the agent's heading; ignore ladders and micro-segments
       if (a.state === 'moving' && a.path[a.seg + 1]) {
