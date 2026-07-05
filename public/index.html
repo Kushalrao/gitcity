@@ -1732,41 +1732,49 @@ function tick(ts) {
 }
 requestAnimationFrame(tick);
 
-/* ---------- follow-cam: ride along with an agent, inside the city ---------- */
-let followId = null;
-const cam = { x: 0, y: 0, z: 1, active: false };
-function followAgent(id) {
+/* ---------- the camera: zoom deep into the city, ride agents, walk the streets ---------- */
+let followId = null, followZ = 3.4;
+const cam = { x: 0, y: 0, z: 1, active: false, freeZoom: false };
+const followHudEl = () => document.getElementById('followHud');
+function camOn() {
+  if (cam.active) return;
   const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  if (!cam.active) {
-    cam.x = mapwrap.scrollLeft + vw / 2;
-    cam.y = mapwrap.scrollTop + vh * 0.62;
-    cam.z = 1;
-  }
-  followId = id;
+  cam.x = mapwrap.scrollLeft + vw / 2;
+  cam.y = mapwrap.scrollTop + vh * 0.62;
+  cam.z = 1;
   cam.active = true;
   mapwrap.classList.add('following');
   mapwrap.scrollTo(0, 0);
-  const hud = document.getElementById('followHud');
-  hud.textContent = `⌖ riding with ${id} — click anywhere or press Esc to exit`;
+}
+function followAgent(id) {
+  camOn();
+  followId = id;
+  const hud = followHudEl();
+  hud.textContent = `⌖ riding with ${id} — click ground to hop off here, Esc to fly back out`;
   hud.style.display = 'block';
 }
-function exitFollow() {
+function dismount() {   // hop off but STAY down in the city
   followId = null;
-  document.getElementById('followHud').style.display = 'none';
+  followHudEl().style.display = 'none';
+  cam.freeZoom = cam.z > 1.05;
+}
+function exitToOverview() {
+  followId = null;
+  cam.freeZoom = false;
+  followHudEl().style.display = 'none';
 }
 function updateCamera() {
   if (!cam.active) return;
   const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
   if (followId) {
     const a = agents.get(followId);
-    if (!a) exitFollow();
+    if (!a) dismount();
     else {
       cam.x += (a.x - cam.x) * 0.10;
       cam.y += ((a.y - 30) - cam.y) * 0.10;
-      cam.z += (2.4 - cam.z) * 0.07;
+      cam.z += (followZ - cam.z) * 0.07;
     }
-  }
-  if (!followId) {
+  } else if (!cam.freeZoom) {
     cam.z += (1 - cam.z) * 0.14;
     if (cam.z < 1.02) {
       cam.active = false;
@@ -1781,7 +1789,20 @@ function updateCamera() {
     svg.style.transform = `translate(${(vw / 2 - cam.x * cam.z).toFixed(1)}px, ${(vh * 0.62 - cam.y * cam.z).toFixed(1)}px) scale(${cam.z.toFixed(3)})`;
   }
 }
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitFollow(); });
+/* pinch / ctrl+scroll zooms toward the cursor — dive right down to street level */
+function zoomAt(sx, sy, f) {
+  camOn();
+  const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
+  if (followId) { followZ = Math.min(6.5, Math.max(1.6, followZ * f)); return; }
+  const wx = (sx - vw / 2) / cam.z + cam.x;
+  const wy = (sy - vh * 0.62) / cam.z + cam.y;
+  cam.z = Math.min(6.5, Math.max(1, cam.z * f));
+  cam.x = wx - (sx - vw / 2) / cam.z;
+  cam.y = wy - (sy - vh * 0.62) / cam.z;
+  cam.freeZoom = cam.z > 1.03;
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitToOverview(); });
+mapwrap.addEventListener('dblclick', exitToOverview);
 
 let lastUserPan = 0;
 function ensureVisible(x, y) {
@@ -1877,15 +1898,21 @@ function applyRotation() {
 }
 mapwrap.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  if (followId) { exitFollow(); return; }   // step back out of the city first
+  if (followId) { dismount(); return; }   // hop off the agent, stay down in the city
   e.preventDefault();
-  dragPan = { x: e.clientX, y: e.clientY, st: mapwrap.scrollTop, az: AZ };
+  dragPan = { x: e.clientX, y: e.clientY, st: mapwrap.scrollTop, az: AZ, cx: cam.x, cy: cam.y };
   mapwrap.classList.add('dragging');
 });
 window.addEventListener('pointermove', (e) => {
   if (!dragPan) return;
   e.preventDefault();
   lastUserPan = performance.now();
+  if (cam.active) {
+    // down in the city: drag walks you through the streets
+    cam.x = dragPan.cx - (e.clientX - dragPan.x) / cam.z;
+    cam.y = dragPan.cy - (e.clientY - dragPan.y) / cam.z;
+    return;
+  }
   mapwrap.scrollTop = dragPan.st - (e.clientY - dragPan.y);
   const nextAz = dragPan.az - (e.clientX - dragPan.x) * 0.0038;
   if (Math.abs(nextAz - AZ) > 0.02) { AZ = nextAz; applyRotation(); }
@@ -1898,7 +1925,16 @@ function endDrag() {
 }
 window.addEventListener('pointerup', endDrag);
 window.addEventListener('pointercancel', endDrag);
-mapwrap.addEventListener('wheel', () => { lastUserPan = performance.now(); }, { passive: true });
+mapwrap.addEventListener('wheel', (e) => {
+  lastUserPan = performance.now();
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0028));   // pinch / ctrl+scroll = dive in & out
+  } else if (cam.active) {
+    e.preventDefault();
+    if (!followId) { cam.x += e.deltaX / cam.z; cam.y += e.deltaY / cam.z; }
+  }
+}, { passive: false });
 
 /* ---------- dark mode ---------- */
 const themeBtn = document.getElementById('themeBtn');
