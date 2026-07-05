@@ -2289,9 +2289,9 @@ function renderRide(dt) {
   const U = 42;                                  // world px per iso unit
   const camX = wp.x - fx * R3.dist, camY = wp.y - fy * R3.dist;
   const camZ = 34 + Math.max(0, wp.z * 0.8);     // ~1.5 floors up; rises gently on climbs
-  const pitch = 0.11 + Math.min(0.3, Math.max(0, wp.z - camZ) * 0.003);   // gentle up-tilt, road stays in frame
+  const pitch = 0 + Math.min(0.3, Math.max(0, wp.z - camZ) * 0.003);   // level gaze; tilts up only when the agent climbs
   const cosP = Math.cos(pitch), sinP = Math.sin(pitch);
-  const f = vh * 1.05, ax0 = vw / 2, ay0 = vh * 0.66;
+  const f = vh * 1.05, ax0 = vw / 2, ay0 = vh * 0.52;
   const proj = (X, Y, Z) => {
     const dx = (X - camX) * U, dyw = (Y - camY) * U, dz = Z - camZ;
     const vzf = dx * fx + dyw * fy;
