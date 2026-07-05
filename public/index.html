@@ -917,6 +917,8 @@ let agents = new Map();
 let agentLayer = null;
 const CULL = { on: false, center: null, r: 12 };   // "ride bubble": draw only near the rider
 let NEARF = null;
+const CARS = [];        // persistent traffic: each car loops its own block
+let SCENE_N = false;    // night flag of the current build (for corner re-skins)
 let OX = 0, OY = 0;        // iso origin on the canvas
 let AZ = parseFloat(localStorage.getItem('agentview-az') || String(Math.PI / 4));   // camera azimuth — drag to orbit
 let vAZ = AZ;   // visual azimuth: moves smoothly every frame; AZ re-bakes geometry in coarse steps
@@ -929,14 +931,20 @@ const isoS = (ix, iy) => ({
 /* footprint corners relabeled for the current azimuth: C is always the corner
    nearest the camera, D its left neighbor, B its right — so walls, ladders and
    labels always land on the two visible faces no matter the rotation */
-function cornersOf(x0, y0, wx, wy) {
-  const pts = [isoS(x0, y0), isoS(x0 + wx, y0), isoS(x0 + wx, y0 + wy), isoS(x0, y0 + wy)];
+function cornersOf(x0, y0, wx, wy, proj) {
+  const pr = proj || isoS;
+  const pts = [pr(x0, y0), pr(x0 + wx, y0), pr(x0 + wx, y0 + wy), pr(x0, y0 + wy)];
   let ci = 0;
   for (let i = 1; i < 4; i++) {
     if (pts[i].y > pts[ci].y + 0.01 || (Math.abs(pts[i].y - pts[ci].y) <= 0.01 && pts[i].x < pts[ci].x)) ci = i;
   }
   return { C: pts[ci], D: pts[(ci + 1) % 4], A: pts[(ci + 2) % 4], B: pts[(ci + 3) % 4] };
 }
+/* origin-relative projector: for things that move (cars) and carry their own translate */
+const isoV = (dx, dy) => ({
+  x: (dx * Math.cos(AZ) - dy * Math.sin(AZ)) * KX,
+  y: (dx * Math.sin(AZ) + dy * Math.cos(AZ)) * KY,
+});
 let SPAWN = { iso: { x: -1, y: PITCH_Y - S_ISO / 2 }, x: 120, y: 400 };
 
 /* deterministic pseudo-random so the scenery is stable across rebuilds */
@@ -953,8 +961,8 @@ const GLASS = '#7BC9DE', GLASS_D = '#3E8FA3';
 const SKINS = ['#F8C89A', '#C68642', '#8D5524', '#FFDBAC'];
 
 /* draw an isometric box: roof + the two camera-facing walls (azimuth-aware) */
-function isoBox(g, x0, y0, wx, wy, hb, ht, cTop, cLeft, cRight) {
-  const { A, B, C, D } = cornersOf(x0, y0, wx, wy);
+function isoBox(g, x0, y0, wx, wy, hb, ht, cTop, cLeft, cRight, proj) {
+  const { A, B, C, D } = cornersOf(x0, y0, wx, wy, proj);
   const up = (v, h) => ({ x: v.x, y: v.y - h });
   el('polygon', { points: P([up(A, ht), up(B, ht), up(C, ht), up(D, ht)]), fill: cTop }, g);
   el('polygon', { points: P([up(D, ht), up(C, ht), up(C, hb), up(D, hb)]), fill: cLeft }, g);
@@ -1013,6 +1021,30 @@ function buildMap(root) {
   riseKeys = INTRO ? 'all' : new Set(dirs.filter(d => !knownDirs.has(d.key)).map(d => d.key));
   knownDirs = new Set(dirs.map(d => d.key));
   if (INTRO) svg.style.animation = 'fadein 0.45s ease-out backwards';
+  SCENE_N = N;
+
+  // persistent traffic: (re)seed only when the grid changes so cars keep cruising across rebuilds
+  const gridKey = cols + 'x' + rows;
+  if (CARS.gridKey !== gridKey) {
+    CARS.length = 0;
+    CARS.gridKey = gridKey;
+    const n = Math.min(22, Math.round(cols * rows * 0.8) + 3);
+    for (let i = 0; i < n; i++) {
+      const bgx = Math.min(cols - 1, Math.floor(rnd(i * 3 + 1) * cols));
+      const bgy = Math.min(rows - 1, Math.floor(rnd(i * 5 + 2) * rows));
+      const x0 = bgx * PITCH_X - S_ISO / 2, x1 = (bgx + 1) * PITCH_X - S_ISO / 2;
+      const y0 = bgy * PITCH_Y - S_ISO / 2, y1 = (bgy + 1) * PITCH_Y - S_ISO / 2;
+      const types = ['sedan', 'sedan', 'sedan', 'taxi', 'van'];
+      CARS.push({
+        corners: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }],
+        leg: Math.floor(rnd(i + 9) * 4), t: rnd(i + 11),
+        speed: 0.45 + rnd(i + 7) * 0.35,
+        type: types[Math.floor(rnd(i + 13) * types.length)],
+        color: WALLS[Math.floor(rnd(i + 17) * WALLS.length)],
+        seed: i, el: null,
+      });
+    }
+  }
 
   drawGround(width, height, spanX, spanY, cols, rows, N);
 
@@ -1148,18 +1180,15 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
     }
   }
   // cars cruising the streets
-  const nCars = Math.round(cols * rows * 0.9) + 3;
-  for (let i = 0; i < nCars; i++) {
-    const col = WALLS[Math.floor(rnd(i + 13) * WALLS.length)];
-    if (rnd(i) > 0.5) {
-      const gy = Math.floor(rnd(i + 31) * (rows + 1));
-      const ix = 1 + rnd(i + 7) * (spanX - 3), iy = gy * PITCH_Y - S_ISO / 2 - 0.28;
-      if (nf(ix, iy)) drawCarIso(ix, iy, 'x', col, N, i * 3 + 1);
-    } else {
-      const gx = Math.floor(rnd(i + 47) * (cols + 1));
-      const ix = gx * PITCH_X - S_ISO / 2 + 0.28, iy = 1 + rnd(i + 9) * (spanY - 3);
-      if (nf(ix, iy)) drawCarIso(ix, iy, 'y', col, N, i * 5 + 2);
-    }
+  // traffic: cars that actually drive around their block
+  for (const c of CARS) {
+    c.el = null;
+    const pos = carPos(c);
+    if (!nf(pos.x, pos.y, CULL.r * 0.95)) continue;
+    c.el = el('g', {}, svg);
+    buildCarBody(c, N);
+    const s = isoS(pos.x, pos.y);
+    c.el.setAttribute('transform', `translate(${s.x.toFixed(1)} ${s.y.toFixed(1)})`);
   }
   // pedestrians strolling the sidewalks
   const nPeds = Math.round(cols * rows * 1.3) + 6;
@@ -1176,32 +1205,90 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   }
 }
 
-function drawCarIso(ix, iy, axis, col, N, seed) {
-  const wx = axis === 'x' ? 1.25 : 0.6, wy = axis === 'x' ? 0.6 : 1.25;
-  const body = N ? shade(col, 0.85, 0.5) : col;
-  const dark = shade(body, 1, 0.7), darker = shade(body, 1, 0.55);
-  // cars cruise slowly up and down their street (direction follows the camera azimuth)
-  const u = (4 + rnd(seed + 3) * 7) * (rnd(seed + 8) > 0.5 ? 1 : -1);
-  const o0 = isoS(0, 0), o1 = axis === 'x' ? isoS(u, 0) : isoS(0, u);
-  const dx = o1.x - o0.x, dy = o1.y - o0.y;
-  const g = el('g', {
-    class: 'roam',
-    style: `--dx:${dx.toFixed(0)}px; --dy:${dy.toFixed(0)}px; --dur:${(30 + rnd(seed) * 40).toFixed(0)}s; --delay:-${(rnd(seed + 5) * 30).toFixed(0)}s`,
-  }, svg);
-  const c = isoS(ix + wx / 2, iy + wy / 2);
-  el('ellipse', { cx: c.x, cy: c.y + 3, rx: (wx + wy) * 14, ry: (wx + wy) * 6, fill: '#2B3345', opacity: 0.18 }, g);
-  isoBox(g, ix, iy, wx, wy, 4, 15, body, dark, darker);
-  const inx = axis === 'x' ? 0.28 : 0.1, iny = axis === 'x' ? 0.1 : 0.28;
-  isoBox(g, ix + inx, iy + iny, wx - 2 * inx, wy - 2 * iny, 15, 24, shade(body, 1, 1.12), N ? '#FFE9AE' : '#CFE8F7', N ? '#E8CE8E' : '#AFCFE4');
-  // tyres — they spin while the car drives
-  const { B: cb, C: cc, D: cd } = cornersOf(ix, iy, wx, wy);
-  const lerp = (p, q, t) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
-  drawWheel(g, lerp(cd, cc, 0.26), 5, seed + 21);
-  drawWheel(g, lerp(cd, cc, 0.78), 5, seed + 22);
-  drawWheel(g, lerp(cc, cb, 0.55), 4.2, seed + 23);
+/* ---- driving cars: block loops with eased corners, facing, lights ---- */
+function carLegInfo(c) {
+  const axis = c.leg % 2 === 0 ? 'x' : 'y';
+  const dir = c.leg === 0 || c.leg === 1 ? 1 : -1;
+  return { axis, dir };
+}
+function carPos(c) {
+  const c0 = c.corners[c.leg], c1 = c.corners[(c.leg + 1) % 4];
+  const px = c0.x + (c1.x - c0.x) * c.t, py = c0.y + (c1.y - c0.y) * c.t;
+  // inner-lane offset, perpendicular-right of travel
+  const len = Math.hypot(c1.x - c0.x, c1.y - c0.y) || 1;
+  const dxn = (c1.x - c0.x) / len, dyn = (c1.y - c0.y) / len;
+  return { x: px - dyn * 0.26, y: py + dxn * 0.26 };
+}
+function buildCarBody(c, N) {
+  if (!c.el) return;
+  c.el.replaceChildren();
+  const g = c.el;
+  const { axis, dir } = carLegInfo(c);
+  const isVan = c.type === 'van';
+  const len = isVan ? 1.42 : 1.28, wid = isVan ? 0.64 : 0.58;
+  const wx = axis === 'x' ? len : wid, wy = axis === 'x' ? wid : len;
+  const body = c.type === 'taxi' ? '#F2C21F' : (N ? shade(c.color, 0.9, 0.7) : c.color);
+  const side = shade(body, 1, 0.86), side2 = shade(body, 1, 0.74);
+  const top = shade(body, 1, 1.1);
+  const glass = N ? '#FFE9AE' : '#CFE8F7', glass2 = N ? '#E8CE8E' : '#AFCFE4';
+
+  el('ellipse', { cx: 0, cy: 3, rx: (len + wid) * 13, ry: (len + wid) * 5.5, fill: '#2B3345', opacity: 0.18 }, g);
+  // body shell + bumpers
+  isoBox(g, -wx / 2, -wy / 2, wx, wy, 3, isVan ? 19 : 12, top, side, side2, isoV);
+  const bl = axis === 'x' ? 0.1 : wid - 0.06, bw = axis === 'x' ? wid - 0.06 : 0.1;
+  isoBox(g, -wx / 2 - (axis === 'x' ? 0.05 : 0), -wy / 2 - (axis === 'x' ? 0 : 0.05), bl === 0.1 ? 0.1 : bl, axis === 'x' ? bw + 0.06 : 0.1, 3, 8, shade(body, 1, 0.6), shade(body, 1, 0.55), shade(body, 1, 0.5), isoV);
+  isoBox(g, (axis === 'x' ? wx / 2 - 0.05 : -wx / 2), (axis === 'x' ? -wy / 2 : wy / 2 - 0.05), axis === 'x' ? 0.1 : wx, axis === 'x' ? wy : 0.1, 3, 8, shade(body, 1, 0.6), shade(body, 1, 0.55), shade(body, 1, 0.5), isoV);
+  // cabin (sedan/taxi) or windshield band (van)
+  if (isVan) {
+    isoBox(g, -wx / 2 + 0.06, -wy / 2 + 0.06, wx - 0.12, wy - 0.12, 19, 24, shade(body, 1, 1.2), glass, glass2, isoV);
+  } else {
+    const back = -0.08 * dir;
+    const a0 = back - 0.3, a1 = back + 0.3;
+    const cx0 = axis === 'x' ? a0 : -wid / 2 + 0.05, cy0 = axis === 'x' ? -wid / 2 + 0.05 : a0;
+    const cwx = axis === 'x' ? a1 - a0 : wid - 0.1, cwy = axis === 'x' ? wid - 0.1 : a1 - a0;
+    isoBox(g, cx0, cy0, cwx, cwy, 12, 21, shade(body, 1, 1.15), glass, glass2, isoV);
+  }
+  if (c.type === 'taxi') {
+    isoBox(g, -0.1, -0.07, 0.2, 0.14, 21, 26, '#FFFFFF', '#E8E8E8', '#D9D9D9', isoV);
+  }
+  // tyres — spinning
+  const { B: cb, C: cc, D: cd } = cornersOf(-wx / 2, -wy / 2, wx, wy, isoV);
+  const lerp2 = (p, q, t) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+  drawWheel(g, lerp2(cd, cc, 0.24), 5, c.seed + 21);
+  drawWheel(g, lerp2(cd, cc, 0.78), 5, c.seed + 22);
+  drawWheel(g, lerp2(cc, cb, 0.55), 4.2, c.seed + 23);
+  // lights lead the way: white up front, red behind
+  const av = axis === 'x' ? { x: 1, y: 0 } : { x: 0, y: 1 };
+  const pv = axis === 'x' ? { x: 0, y: 1 } : { x: 1, y: 0 };
+  for (const s of [-0.3, 0.3]) {
+    const hf = isoV(av.x * (len / 2) * dir + pv.x * wid * s, av.y * (len / 2) * dir + pv.y * wid * s);
+    el('circle', { cx: hf.x, cy: hf.y - 7, r: 2, fill: N ? '#FFE9AE' : '#F5FAFF', stroke: shade(body, 1, 0.6), 'stroke-width': 0.6 }, g);
+    const tl = isoV(-av.x * (len / 2) * dir + pv.x * wid * s, -av.y * (len / 2) * dir + pv.y * wid * s);
+    el('circle', { cx: tl.x, cy: tl.y - 7, r: 1.7, fill: '#E05252' }, g);
+  }
   if (N) {
-    const f = isoS(ix + (axis === 'x' ? wx : wx / 2), iy + (axis === 'x' ? wy / 2 : wy));
-    el('circle', { cx: f.x, cy: f.y - 6, r: 8, fill: '#FFE9AE', opacity: 0.25 }, g);
+    const beam = isoV(av.x * len * 0.85 * dir, av.y * len * 0.85 * dir);
+    el('ellipse', { cx: beam.x, cy: beam.y - 4, rx: 13, ry: 7, fill: '#FFE9AE', opacity: 0.2 }, g);
+  }
+}
+function updateCars(dt) {
+  for (const c of CARS) {
+    const c0 = c.corners[c.leg], c1 = c.corners[(c.leg + 1) % 4];
+    const legLen = Math.hypot(c1.x - c0.x, c1.y - c0.y) || 1;
+    // ease off into corners, pull away after the turn
+    const edge = Math.min(c.t, 1 - c.t);
+    const ease = 0.3 + 0.7 * Math.min(1, edge * 5.5);
+    c.t += (c.speed * ease * dt) / legLen;
+    if (c.t >= 1) {
+      c.t -= 1;
+      c.leg = (c.leg + 1) % 4;
+      buildCarBody(c, SCENE_N);   // new heading: re-skin facing + lights
+    }
+    if (c.el) {
+      const pos = carPos(c);
+      const s = isoS(pos.x, pos.y);
+      c.el.setAttribute('transform', `translate(${s.x.toFixed(1)} ${s.y.toFixed(1)})`);
+    }
   }
 }
 
@@ -1934,6 +2021,7 @@ function tick(ts) {
       else if (a.isKid && performance.now() - a.lastActive > KID_LINGER) startReturn(a);
     }
   }
+  updateCars(dt);
   updateCamera(dt);
   requestAnimationFrame(tick);
 }
