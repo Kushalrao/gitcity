@@ -65,6 +65,10 @@
     font: 11px ui-monospace, Menlo, monospace; color: var(--fg);
     box-shadow: 0 2px 8px var(--shadow); pointer-events: none;
   }
+  #rideVeil {
+    position: fixed; inset: 0; z-index: 5; display: none; pointer-events: none;
+    background: radial-gradient(ellipse 64% 56% at 50% 72%, transparent 52%, var(--bg) 94%);
+  }
 
   #picker {
     position: fixed; left: 14px; top: 14px; z-index: 20;
@@ -155,6 +159,7 @@
     <div id="pickMenu"></div>
   </div>
   <button id="themeBtn" title="toggle day / night"></button>
+  <div id="rideVeil"></div>
   <div id="followHud"></div>
   <div id="hud"><span id="status"></span><span id="watchdir">connecting…</span></div>
 
@@ -907,9 +912,11 @@ const frameRows = def => {
 };
 
 let svg = null;
-let stations = new Map();  // file path -> {streetIso, vx, base, wallFoot, ladderTop, perch, wayDown, glow, wins, label}
+let stations = new Map();  // file path -> {streetIso, vx, base, wallFoot, ladderTop, perch, glow, wins, label}
 let agents = new Map();
 let agentLayer = null;
+const CULL = { on: false, center: null, r: 12 };   // "ride bubble": draw only near the rider
+let NEARF = null;
 let OX = 0, OY = 0;        // iso origin on the canvas
 let AZ = parseFloat(localStorage.getItem('agentview-az') || String(Math.PI / 4));   // camera azimuth — drag to orbit
 let vAZ = AZ;   // visual azimuth: moves smoothly every frame; AZ re-bakes geometry in coarse steps
@@ -1017,13 +1024,19 @@ function buildMap(root) {
   lots.sort((a, b) =>
     isoS(a.gx * PITCH_X + W_ISO / 2, a.gy * PITCH_Y + D_ISO / 2).y -
     isoS(b.gx * PITCH_X + W_ISO / 2, b.gy * PITCH_Y + D_ISO / 2).y);
+  // ride bubble: while following, only the rider's neighborhood is fully drawn
+  const fa = CULL.on && followId && agents.get(followId);
+  CULL.center = fa ? { ...curIsoPt(fa) } : null;
+  NEARF = CULL.center ? ((x, y, rr = CULL.r) => Math.hypot(x - CULL.center.x, y - CULL.center.y) < rr) : null;
+
   let seq = 0;
   for (const { it, gx, gy } of lots) {
-    if (it.park) drawParkLot(gx, gy, N);
-    else drawBuildingIso(it, colorOf.get(it), gx, gy, N, seq++);
+    const cx0 = gx * PITCH_X + W_ISO / 2, cy0 = gy * PITCH_Y + D_ISO / 2;
+    if (it.park) { if (!NEARF || NEARF(cx0, cy0)) drawParkLot(gx, gy, N); }
+    else drawBuildingIso(it, colorOf.get(it), gx, gy, N, seq++, NEARF ? !NEARF(cx0, cy0) : false);
   }
 
-  drawWeather(width, height, spanX, spanY, N);
+  if (!NEARF) drawWeather(width, height, spanX, spanY, N);
 
   SPAWN.iso = { x: -1, y: PITCH_Y - S_ISO / 2 };
   const sp = isoS(SPAWN.iso.x, SPAWN.iso.y);
@@ -1064,6 +1077,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   const gx0 = -S_ISO, gx1 = spanX, gy0 = -S_ISO, gy1 = spanY;
   el('polygon', { points: P([isoS(gx0 - 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy1 + 0.6), isoS(gx0 - 0.6, gy1 + 0.6)]), fill: N ? '#2C3140' : '#C6D3E4' }, svg);
 
+  const nf = NEARF || (() => true);
   const asph = N ? '#20242F' : '#8CA3C4';
   const dash = N ? '#7A8296' : '#F5F8FC';
   for (let gy = 0; gy <= rows; gy++) {
@@ -1071,6 +1085,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
     el('polygon', { points: P([isoS(gx0, y0), isoS(gx1, y0), isoS(gx1, y0 + S_ISO), isoS(gx0, y0 + S_ISO)]), fill: asph }, svg);
     const cy = y0 + S_ISO / 2;
     for (let ix = 0; ix < spanX; ix += 1.5) {
+      if (!nf(ix, cy)) continue;
       el('polygon', { points: P([isoS(ix, cy - 0.05), isoS(ix + 0.65, cy - 0.05), isoS(ix + 0.65, cy + 0.05), isoS(ix, cy + 0.05)]), fill: dash }, svg);
     }
   }
@@ -1079,6 +1094,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
     el('polygon', { points: P([isoS(x0, gy0), isoS(x0 + S_ISO, gy0), isoS(x0 + S_ISO, gy1), isoS(x0, gy1)]), fill: asph }, svg);
     const cx = x0 + S_ISO / 2;
     for (let iy = 0; iy < spanY; iy += 1.5) {
+      if (!nf(cx, iy)) continue;
       el('polygon', { points: P([isoS(cx - 0.05, iy), isoS(cx + 0.05, iy), isoS(cx + 0.05, iy + 0.65), isoS(cx - 0.05, iy + 0.65)]), fill: dash }, svg);
     }
   }
@@ -1086,6 +1102,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   const zebra = N ? '#8A93A6' : '#F2EFE4';
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx < cols; gx++) {
+      if (!nf(gx * PITCH_X + 1, gy * PITCH_Y - S_ISO / 2)) continue;
       if (rnd(gx * 7 + gy * 13) < 0.45) continue;
       const y0 = gy * PITCH_Y - S_ISO;
       for (let s = 0; s < 4; s++) {
@@ -1101,6 +1118,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx <= cols; gx++) {
       if ((gx + gy) % 2) continue;
+      if (!nf(gx * PITCH_X, gy * PITCH_Y)) continue;
       const p = isoS(gx * PITCH_X + 0.12, gy * PITCH_Y + 0.12);
       el('rect', { x: p.x - 2, y: p.y - 50, width: 4, height: 50, fill: '#3A4152' }, svg);
       el('circle', { cx: p.x, cy: p.y - 54, r: 5.5, fill: N ? '#FFE28A' : '#D9DEE8' }, svg);
@@ -1111,6 +1129,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx <= cols; gx++) {
       if ((gx + gy) % 3 !== 1) continue;
+      if (!nf(gx * PITCH_X, gy * PITCH_Y)) continue;
       const p = isoS(gx * PITCH_X - S_ISO - 0.12, gy * PITCH_Y + 0.12);
       el('rect', { x: p.x - 1.5, y: p.y - 44, width: 3, height: 44, fill: '#3A4152' }, svg);
       el('rect', { x: p.x - 4, y: p.y - 58, width: 8, height: 16, rx: 2.5, fill: '#2B2F3A' }, svg);
@@ -1122,6 +1141,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   // sidewalk trees on the block corners
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx <= cols; gx++) {
+      if (!nf(gx * PITCH_X, gy * PITCH_Y)) continue;
       if (rnd(gx * 19 + gy * 23) < 0.55) continue;
       const kinds = ['round', 'tall', 'palm'];
       drawTreeAt(isoS(gx * PITCH_X + 0.35, gy * PITCH_Y + 0.35), 0.6 + rnd(gx + gy) * 0.35, N, kinds[Math.floor(rnd(gx * 3 + gy * 7) * 3)]);
@@ -1133,10 +1153,12 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
     const col = WALLS[Math.floor(rnd(i + 13) * WALLS.length)];
     if (rnd(i) > 0.5) {
       const gy = Math.floor(rnd(i + 31) * (rows + 1));
-      drawCarIso(1 + rnd(i + 7) * (spanX - 3), gy * PITCH_Y - S_ISO / 2 - 0.28, 'x', col, N, i * 3 + 1);
+      const ix = 1 + rnd(i + 7) * (spanX - 3), iy = gy * PITCH_Y - S_ISO / 2 - 0.28;
+      if (nf(ix, iy)) drawCarIso(ix, iy, 'x', col, N, i * 3 + 1);
     } else {
       const gx = Math.floor(rnd(i + 47) * (cols + 1));
-      drawCarIso(gx * PITCH_X - S_ISO / 2 + 0.28, 1 + rnd(i + 9) * (spanY - 3), 'y', col, N, i * 5 + 2);
+      const ix = gx * PITCH_X - S_ISO / 2 + 0.28, iy = 1 + rnd(i + 9) * (spanY - 3);
+      if (nf(ix, iy)) drawCarIso(ix, iy, 'y', col, N, i * 5 + 2);
     }
   }
   // pedestrians strolling the sidewalks
@@ -1144,10 +1166,12 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
   for (let i = 0; i < nPeds; i++) {
     if (rnd(i + 1) > 0.5) {
       const gy = Math.floor(rnd(i + 61) * (rows + 1));
-      drawPedestrian(1 + rnd(i + 17) * (spanX - 3), gy * PITCH_Y - S_ISO - 0.22, 'x', i * 7 + 3, N);
+      const ix = 1 + rnd(i + 17) * (spanX - 3), iy = gy * PITCH_Y - S_ISO - 0.22;
+      if (nf(ix, iy)) drawPedestrian(ix, iy, 'x', i * 7 + 3, N);
     } else {
       const gx = Math.floor(rnd(i + 71) * (cols + 1));
-      drawPedestrian(gx * PITCH_X - S_ISO - 0.22, 1 + rnd(i + 19) * (spanY - 3), 'y', i * 11 + 5, N);
+      const ix = gx * PITCH_X - S_ISO - 0.22, iy = 1 + rnd(i + 19) * (spanY - 3);
+      if (nf(ix, iy)) drawPedestrian(ix, iy, 'y', i * 11 + 5, N);
     }
   }
 }
@@ -1296,23 +1320,12 @@ function styleFor(i, floors) {
   return pool[Math.floor(rnd(i * 31 + 5) * pool.length)];
 }
 
-function drawBuildingIso(b, i, gx, gy, N, seq) {
+function drawBuildingIso(b, i, gx, gy, N, seq, ghost) {
   const bx = gx * PITCH_X, by = gy * PITCH_Y;
   const floors = b.files.length;
   const H = LOBBY_HZ + floors * FLOOR_HZ + 8;
-  const rising = riseKeys === 'all' || (riseKeys && riseKeys.has(b.key));
+  const rising = !ghost && (riseKeys === 'all' || (riseKeys && riseKeys.has(b.key)));
   const style = styleFor(i, floors);
-  // buildings keep their daytime colors in dark mode — only the sky and windows change
-  let wall = WALLS[i % WALLS.length];
-  if (style === 'eiffel') wall = '#A87C58';   // riveted iron
-  const faceR = shade(wall, 1, 0.93);   // both faces read as the same color, hint of depth only
-  const roof = ROOFS[Math.floor(rnd(i * 7 + 2) * ROOFS.length)];
-  const trim = shade(wall, 1.05, 0.72);
-  const g = el('g', {}, svg);
-  el('title', {}, g).textContent = b.full;
-
-  const { A, B, C, D } = cornersOf(bx, by, W_ISO, D_ISO);
-  const ang = Math.atan2(C.y - D.y, C.x - D.x) * 180 / Math.PI;
 
   // silhouette: width factor by height gives each structure its shape
   let wAt = () => 1;
@@ -1330,6 +1343,45 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
   const FP = (wx, wy, h) => shrPt(wx, wy, wAt(h), h);
   const PFt = (t, h) => FP(bx + t * W_ISO, by + D_ISO, h);
   const PRt = (t, h) => FP(bx + W_ISO, by + D_ISO * (1 - t), h);
+
+  const streetIso = { x: bx + W_ISO * 0.15, y: by + D_ISO + S_ISO * 0.45 };
+  const vxc = bx - S_ISO / 2;
+  const baseScr = isoS(streetIso.x, streetIso.y);
+  const isoAtB = (t, h) => {
+    const f = wAt(h);
+    return { x: ax + ((bx + t * W_ISO) - ax) * f, y: ay + ((by + D_ISO) - ay) * f };
+  };
+
+  if (ghost) {
+    // outside the ride bubble: keep every station routable, draw nothing
+    b.files.forEach((f, fi) => {
+      const hb = LOBBY_HZ + fi * FLOOR_HZ;
+      const wf = PFt(0.15, 0), lt = PFt(0.15, hb), pp = PFt(0.46, hb);
+      const wfIso = { ...isoAtB(0.15, 0), h: 0 };
+      const ltIso = { ...isoAtB(0.15, hb), h: hb + 2 };
+      const perIso = { ...isoAtB(0.46, hb), h: hb + 2 };
+      const baseIso = { x: streetIso.x, y: streetIso.y, h: 0 };
+      stations.set(f.path, {
+        streetIso, vx: vxc, base: baseScr,
+        wallFoot: wf, ladderTop: { x: lt.x, y: lt.y - 2 }, perch: { x: pp.x, y: pp.y - 2 },
+        wfIso, ltIso, perIso, baseIso, wayDownIso: [ltIso, wfIso, baseIso],
+        glow: null, wins: null, label: null,
+      });
+    });
+    return;
+  }
+
+  // buildings keep their daytime colors in dark mode — only the sky and windows change
+  let wall = WALLS[i % WALLS.length];
+  if (style === 'eiffel') wall = '#A87C58';   // riveted iron
+  const faceR = shade(wall, 1, 0.93);   // both faces read as the same color, hint of depth only
+  const roof = ROOFS[Math.floor(rnd(i * 7 + 2) * ROOFS.length)];
+  const trim = shade(wall, 1.05, 0.72);
+  const g = el('g', {}, svg);
+  el('title', {}, g).textContent = b.full;
+
+  const { A, B, C, D } = cornersOf(bx, by, W_ISO, D_ISO);
+  const ang = Math.atan2(C.y - D.y, C.x - D.x) * 180 / Math.PI;
 
   // cast shadow
   const shd = Math.min(H, 170);
@@ -1479,10 +1531,9 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
   const ctx = {
     trim, ang, wAt,
     axw: ax, ayw: ay, bxw: bx, byw: by,
-    streetIso: { x: bx + W_ISO * 0.15, y: by + D_ISO + S_ISO * 0.45 },
-    vx: bx - S_ISO / 2,
+    streetIso, vx: vxc,
   };
-  ctx.base = isoS(ctx.streetIso.x, ctx.streetIso.y);
+  ctx.base = baseScr;
   b.files.forEach((f, fi) => stations.set(f.path, drawFloorIso(g, i, fi, f, PFt, PRt, ctx, N)));
 
   // roof sign with the folder name
@@ -1810,14 +1861,16 @@ function arrive(a) {
   if (st) {
     a.aloft = true;
     a.face(1);
-    st.glow.setAttribute('visibility', 'visible');
-    st.wins.forEach(wn => wn.setAttribute('fill', '#FFD98A'));   // the floor lights up
-    st.label.classList.add('active');
-    clearTimeout(st.glowTimer);
-    st.glowTimer = setTimeout(() => {
-      st.glow.setAttribute('visibility', 'hidden');
-      st.label.classList.remove('active');
-    }, DWELL + 300);
+    if (st.glow) {
+      st.glow.setAttribute('visibility', 'visible');
+      st.wins.forEach(wn => wn.setAttribute('fill', '#FFD98A'));   // the floor lights up
+      st.label.classList.add('active');
+      clearTimeout(st.glowTimer);
+      st.glowTimer = setTimeout(() => {
+        st.glow.setAttribute('visibility', 'hidden');
+        st.label.classList.remove('active');
+      }, DWELL + 300);
+    }
   }
 }
 
@@ -1887,7 +1940,7 @@ function tick(ts) {
 requestAnimationFrame(tick);
 
 /* ---------- the camera: zoom deep into the city, ride agents, walk the streets ---------- */
-let followId = null, followZ = 3.4;
+let followId = null, followZ = 4.8;
 const cam = { x: 0, y: 0, z: 1, ay: 0.62, active: false, freeZoom: false };
 const followHudEl = () => document.getElementById('followHud');
 function camOn() {
@@ -1904,30 +1957,35 @@ function camOn() {
 function followAgent(id) {
   camOn();
   followId = id;
+  CULL.on = true;
+  applyRotation();   // rebuild into the ride bubble (tiny scene = fast re-bakes)
+  document.getElementById('rideVeil').style.display = 'block';
   const hud = followHudEl();
   hud.textContent = `⌖ riding with ${id} — click ground to hop off here, Esc to fly back out`;
   hud.style.display = 'block';
 }
-function bakeAZ() {
-  if (Math.abs(vAZ - AZ) > 0.004) { AZ = vAZ; applyRotation(); }
+function endRide() {
+  followId = null;
+  CULL.on = false;
+  followHudEl().style.display = 'none';
+  document.getElementById('rideVeil').style.display = 'none';
+  AZ = vAZ;
+  applyRotation();   // restore the full city
 }
 function dismount() {   // hop off but STAY down in the city
-  followId = null;
-  followHudEl().style.display = 'none';
-  cam.freeZoom = cam.z > 1.05;
-  bakeAZ();
+  const keep = cam.z > 1.05;
+  endRide();
+  cam.freeZoom = keep;
 }
 function exitToOverview() {
-  followId = null;
+  endRide();
   cam.freeZoom = false;
-  followHudEl().style.display = 'none';
-  bakeAZ();
 }
 function updateCamera(dt) {
   if (!cam.active) return;
   const step0 = dt || 0.016;
   const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  cam.ay += ((followId ? 0.74 : 0.62) - cam.ay) * 0.05;   // chase-cam sits behind/below the agent
+  cam.ay += ((followId ? 0.8 : 0.62) - cam.ay) * 0.05;   // chase-cam sits behind/below the agent
   if (followId) {
     const a = agents.get(followId);
     if (!a) dismount();
@@ -1953,8 +2011,14 @@ function updateCamera(dt) {
           }
         }
       }
-      // re-bake geometry in fine steps; the small residual renders as a rigid rotation below
-      if (!rotBusy && Math.abs(vAZ - AZ) > 0.06) { AZ = vAZ; applyRotation(); }
+      // re-bake geometry in fine steps (the ride bubble makes each bake a few ms);
+      // the small residual renders as a rigid rotation below
+      if (!rotBusy && Math.abs(vAZ - AZ) > 0.03) { AZ = vAZ; applyRotation(); }
+      // rolling re-cull: as the rider crosses blocks, redraw the bubble around them
+      else if (!rotBusy && CULL.center) {
+        const ci = curIsoPt(a);
+        if (Math.hypot(ci.x - CULL.center.x, ci.y - CULL.center.y) > CULL.r * 0.45) applyRotation();
+      }
     }
   } else if (!cam.freeZoom) {
     cam.z += (1 - cam.z) * 0.14;
@@ -2089,7 +2153,7 @@ function applyRotation() {
   setTimeout(() => {
     rotBusy = false;
     if (rotDirty) { rotDirty = false; applyRotation(); }
-  }, 70);
+  }, followId ? 35 : 70);
 }
 mapwrap.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
