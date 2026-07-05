@@ -122,8 +122,8 @@
   .agent .bubble-text { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace; fill: var(--bubble-text); }
   .agent .bubble-verb { font-weight: 700; }
 
-  #themeBtn {
-    position: fixed; right: 14px; top: 14px; z-index: 20;
+  #themeBtn, #rotBtn {
+    position: fixed; right: 14px; z-index: 20;
     width: 38px; height: 38px; border-radius: 50%;
     background: var(--panel); backdrop-filter: blur(4px);
     border: 1px solid var(--panel-border); box-shadow: 0 2px 8px var(--shadow);
@@ -131,7 +131,9 @@
     font-size: 16px; line-height: 1; color: var(--fg);
     transition: transform 0.12s, box-shadow 0.12s;
   }
-  #themeBtn:hover { transform: scale(1.12); box-shadow: 0 3px 12px var(--shadow-hover); }
+  #themeBtn { top: 14px; }
+  #rotBtn { top: 60px; }
+  #themeBtn:hover, #rotBtn:hover { transform: scale(1.12); box-shadow: 0 3px 12px var(--shadow-hover); }
 </style>
 </head>
 <body>
@@ -140,7 +142,8 @@
     <button id="pickBtn" title="change character"></button>
     <div id="pickMenu"></div>
   </div>
-  <button id="themeBtn" title="toggle dark mode"></button>
+  <button id="themeBtn" title="toggle day / night"></button>
+  <button id="rotBtn" title="rotate the city">↻</button>
   <div id="hud"><span id="status"></span><span id="watchdir">connecting…</span></div>
 
 <script>
@@ -896,6 +899,7 @@ let stations = new Map();  // file path -> {streetIso, vx, base, wallFoot, ladde
 let agents = new Map();
 let agentLayer = null;
 let OX = 0, OY = 0;        // iso origin on the canvas
+let VIEW = parseInt(localStorage.getItem('agentview-view') || '0', 10) % 4;
 const isoS = (ix, iy) => ({ x: OX + (ix - iy) * K, y: OY + (ix + iy) * K2 });
 let SPAWN = { iso: { x: -1, y: PITCH_Y - S_ISO / 2 }, x: 120, y: 400 };
 
@@ -947,10 +951,19 @@ function buildMap(root) {
     lastTop = topKey;
     items.push(d);
   }
-  const cols = Math.max(3, Math.ceil(Math.sqrt(items.length * 1.4)));
-  const rows = Math.max(1, Math.ceil(items.length / cols));
+  const baseCols = Math.max(3, Math.ceil(Math.sqrt(items.length * 1.4)));
+  const baseRows = Math.max(1, Math.ceil(items.length / baseCols));
   const maxFloors = Math.max(1, ...dirs.map(d => d.files.length));
   const maxH = LOBBY_HZ + maxFloors * FLOOR_HZ + 70;
+
+  // VIEW rotates the whole grid in 90° steps so the city can be seen from any corner
+  const cols = VIEW % 2 ? baseRows : baseCols;
+  const rows = VIEW % 2 ? baseCols : baseRows;
+  const remap = (gx, gy) =>
+    VIEW === 0 ? [gx, gy]
+    : VIEW === 1 ? [baseRows - 1 - gy, gx]
+    : VIEW === 2 ? [baseCols - 1 - gx, baseRows - 1 - gy]
+    : [gy, baseCols - 1 - gx];
 
   const spanX = cols * PITCH_X, spanY = rows * PITCH_Y;
   OX = (spanY + S_ISO) * K + 160;
@@ -967,7 +980,10 @@ function buildMap(root) {
   drawGround(width, height, spanX, spanY, cols, rows, N);
 
   // lots in painter's order: back of the scene first
-  const lots = items.map((it, idx) => ({ it, gx: idx % cols, gy: Math.floor(idx / cols) }));
+  const lots = items.map((it, idx) => {
+    const [gx, gy] = remap(idx % baseCols, Math.floor(idx / baseCols));
+    return { it, gx, gy };
+  });
   const colorOf = new Map();
   let ci = 0;
   for (const it of items) if (!it.park) colorOf.set(it, ci++);
@@ -1527,7 +1543,7 @@ function startNext(a) {
   a.job = job;
   a.returning = false;
   beginPath(a, routeVia(a, st));
-  ensureVisible(st.perch.x, st.perch.y);
+  if (!a.isKid) ensureVisible(st.perch.x, st.perch.y);   // camera follows the main agent only
 }
 
 /* Sub-agent finished — run back through the streets to the main agent and vanish. */
@@ -1637,7 +1653,9 @@ function tick(ts) {
 }
 requestAnimationFrame(tick);
 
+let lastUserPan = 0;
 function ensureVisible(x, y) {
+  if (performance.now() - lastUserPan < 8000) return;   // the user is driving the camera
   const pad = 80;
   const { scrollLeft, scrollTop, clientWidth, clientHeight } = mapwrap;
   let sx = scrollLeft, sy = scrollTop;
@@ -1709,15 +1727,32 @@ pickBtn.onclick = () => pickMenu.classList.toggle('open');
 /* ---------- drag to pan around the city ---------- */
 let dragPan = null;
 mapwrap.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  e.preventDefault();
   dragPan = { x: e.clientX, y: e.clientY, sl: mapwrap.scrollLeft, st: mapwrap.scrollTop };
   mapwrap.classList.add('dragging');
 });
 window.addEventListener('pointermove', (e) => {
   if (!dragPan) return;
+  e.preventDefault();
   mapwrap.scrollLeft = dragPan.sl - (e.clientX - dragPan.x);
   mapwrap.scrollTop = dragPan.st - (e.clientY - dragPan.y);
+  lastUserPan = performance.now();
 });
 window.addEventListener('pointerup', () => { dragPan = null; mapwrap.classList.remove('dragging'); });
+window.addEventListener('pointercancel', () => { dragPan = null; mapwrap.classList.remove('dragging'); });
+mapwrap.addEventListener('wheel', () => { lastUserPan = performance.now(); }, { passive: true });
+
+/* ---------- rotate the city 90° per tap ---------- */
+document.getElementById('rotBtn').onclick = () => {
+  VIEW = (VIEW + 1) % 4;
+  localStorage.setItem('agentview-view', String(VIEW));
+  refreshMap().then(() => {
+    const m = mainId && agents.get(mainId);
+    const cx = m ? m.x : SPAWN.x, cy = m ? m.y : SPAWN.y;
+    mapwrap.scrollTo({ left: cx - mapwrap.clientWidth / 2, top: cy - mapwrap.clientHeight / 2 });
+  });
+};
 
 /* ---------- dark mode ---------- */
 const themeBtn = document.getElementById('themeBtn');
