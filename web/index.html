@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>git city</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #0A0B0D; }
+  body { font: 15px/1.6 -apple-system, "SF Pro Text", "Segoe UI", Helvetica, sans-serif; -webkit-font-smoothing: antialiased; }
+
+  #logo { position: fixed; top: 34px; left: 44px; z-index: 20; }
+  #logo img { height: 74px; filter: drop-shadow(2px 3px 0 #000000); display: block; }
+
+  /* buy button — fixed top-right, fades in once the first fold has loaded */
+  #buy {
+    position: fixed; top: 34px; right: 40px; z-index: 30;
+    background: #FFFFFF; color: #0A0B0D; text-decoration: none;
+    font: 700 16px/1 -apple-system, "SF Pro Text", "Segoe UI", Helvetica, sans-serif;
+    letter-spacing: -0.2px; padding: 14px 22px; border-radius: 0;
+    opacity: 0; transform: translateY(-6px); pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease, background .15s;
+  }
+  #buy.show { opacity: 1; transform: none; pointer-events: auto; }
+  #buy:hover { background: #EDEDEF; }
+
+  /* scroll stage: the city stays pinned while scroll morphs front → iso */
+  .stage { height: 360vh; position: relative; }
+  .pin { position: sticky; top: 0; height: 100vh; overflow: hidden; }
+  .pin iframe {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%; border: 0; display: block;
+    background: transparent; pointer-events: none;
+  }
+
+  /* copy below, reference style: bold, centered, gray */
+  .copy { padding: 18vh 24px 100px; display: flex; flex-direction: column; gap: 22px; align-items: center; }
+  .copy-head {
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", Helvetica, sans-serif;
+    font-size: clamp(56px, 9vw, 128px); font-weight: 800; line-height: 0.98;
+    letter-spacing: -2px; text-align: center; color: #F4F4F6; margin-bottom: 24px;
+  }
+  .copy p {
+    max-width: 620px; text-align: center;
+    font-size: 30px; line-height: 1.4; font-weight: 700; color: #6E7278;
+    letter-spacing: -0.3px;
+  }
+
+  /* one building, one working agent, one parked car */
+  .bldg { height: 72vh; margin-top: -6vh; position: relative; }
+  .bldg iframe { width: 100%; height: 100%; border: 0; display: block; background: transparent; pointer-events: none; }
+
+  /* theme switcher — two swatch circles, current one ringed */
+  .themes { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 30px; z-index: 4; }
+  .theme-dot { background: none; border: 0; padding: 0; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 9px; }
+  .theme-dot .sw {
+    width: 58px; height: 58px; border-radius: 50%;
+    box-shadow: 0 4px 16px rgba(0,0,0,.45), inset 0 0 0 3px rgba(255,255,255,0);
+    outline: 2px solid transparent; outline-offset: 3px; transition: outline-color .15s, transform .15s;
+  }
+  .theme-dot:hover .sw { transform: scale(1.06); }
+  .theme-dot.sel .sw { outline-color: #F4F4F6; }
+  .sw-city { background: radial-gradient(circle at 32% 28%, #46A8BE 0%, #2b3550 52%, #10131f 100%); }
+  .sw-gospel { background: conic-gradient(from 210deg, #8F2E7A, #F2A65A, #4A1E66, #C86E93, #8F2E7A); }
+  .theme-dot em { font-style: normal; font-size: 13px; font-weight: 600; color: #8A8F96; transition: color .15s; }
+  .theme-dot.sel em { color: #E8E8EC; }
+
+  /* your-repo section — big bold headline (matches the hero copy heading) + rounded field */
+  .repo { padding: 60px 24px 0; text-align: center; }
+  .repo h2 {
+    font-family: -apple-system, "SF Pro Display", "Segoe UI", Helvetica, sans-serif;
+    font-size: clamp(56px, 9vw, 128px); font-weight: 800; line-height: 0.98;
+    letter-spacing: -2px; color: #F4F4F6; margin-bottom: 44px;
+  }
+  .repo-label {
+    display: block; width: min(640px, 100%); margin: 0 auto 12px;
+    text-align: left; font-size: 15px; font-weight: 600; color: #9A9EA6;
+  }
+  #repoInput {
+    display: block; width: min(640px, 100%); margin: 0 auto;
+    padding: 20px 22px; font-size: 20px; color: #EDEDEF;
+    background: #101114; border: 1px solid #3A3C40; border-radius: 14px;
+    outline: none; transition: border-color .15s;
+    font-family: inherit;
+  }
+  #repoInput::placeholder { color: #6E7278; }
+  #repoInput:focus { border-color: #8A8F96; }
+  #repoStatus { height: 22px; margin-top: 16px; font-size: 15px; color: #6E7278; }
+  .repo { padding-bottom: 0; }
+
+  /* the roster grid — interactive: picking a character changes who works the tower */
+  .roster { height: 1010px; }
+  .roster iframe { width: 100%; height: 100%; border: 0; display: block; background: transparent; }
+
+  /* finale — a dense psychedelic city that zooms in as this section scrolls */
+  .finale { height: 320vh; position: relative; }
+  .finale-pin { position: sticky; top: 0; height: 100vh; overflow: hidden; }
+  .finale-pin iframe { width: 100%; height: 100%; border: 0; display: block; background: transparent; pointer-events: none; }
+</style>
+</head>
+<body>
+
+<div id="logo"><img src="logo.svg" alt="git city" /></div>
+<a id="buy" href="#" target="_blank" rel="noopener">Buy now · $5</a>
+
+<div class="stage" id="stage">
+  <div class="pin">
+    <iframe id="city" scrolling="no" src="app.html?demo=1&front=1&night=1&zoom=1.25&v=4" title="git city"></iframe>
+  </div>
+</div>
+
+<div class="copy">
+  <h2 class="copy-head">Your codebase,<br/>now a city.</h2>
+  <p>Welcome to your codebase. Every folder is a building, every file a floor — git city turns the repository you work in every day into a living metropolis.</p>
+  <p>Your coding agents are its citizens. Watch them run the streets, climb the towers, and light up the floors they work on — live, on every Claude Code session.</p>
+</div>
+
+<div class="repo">
+  <h2>Your repo as a git city.<br/>Watch your agents run it, live.</h2>
+  <form id="repoForm">
+    <label for="repoInput" class="repo-label">View your repo in git city</label>
+    <input id="repoInput" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github.com/owner/repo" />
+  </form>
+  <div id="repoStatus"></div>
+</div>
+
+<div class="bldg">
+  <iframe id="bldgFrame" scrolling="no" src="app.html?demo=1&bldg=1&night=1&zoom=1.5&v=4" title="a git city building"></iframe>
+  <div class="themes" id="themes">
+    <button class="theme-dot sel" data-scene="city" title="City"><span class="sw sw-city"></span><em>City</em></button>
+    <button class="theme-dot" data-scene="gospel" title="Psychedelic"><span class="sw sw-gospel"></span><em>Psychedelic</em></button>
+  </div>
+</div>
+
+<div class="roster">
+  <iframe id="rosterFrame" scrolling="no" src="app.html?roster=1&v=4" title="characters"></iframe>
+</div>
+
+<div class="finale" id="finaleStage">
+  <div class="finale-pin">
+    <iframe id="finaleFrame" scrolling="no" src="app.html?demo=1&finale=1&night=1&v=4" title="git city"></iframe>
+  </div>
+</div>
+
+<script>
+  const stage = document.getElementById('stage');
+  const city = document.getElementById('city');
+  let ready = false;
+  city.addEventListener('load', () => { ready = true; send(); });
+
+  // reveal the buy button only once the user has scrolled past the first fold
+  const buy = document.getElementById('buy');
+  addEventListener('scroll', () => {
+    buy.classList.toggle('show', window.scrollY > innerHeight * 0.9);
+  }, { passive: true });
+
+  // finale: drive the closing city's zoom from this section's scroll progress
+  const finaleStage = document.getElementById('finaleStage');
+  const finaleFrame = document.getElementById('finaleFrame');
+  let finaleReady = false, finaleLast = -1;
+  finaleFrame.addEventListener('load', () => { finaleReady = true; });
+  addEventListener('scroll', () => {
+    if (!finaleReady) return;
+    const r = finaleStage.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, -r.top / (r.height - innerHeight)));
+    if (Math.abs(t - finaleLast) < 0.004) return;
+    finaleLast = t;
+    finaleFrame.contentWindow.postMessage({ type: 'gc-zoom', t }, '*');
+  }, { passive: true });
+
+  function progress() {
+    const r = stage.getBoundingClientRect();
+    const total = r.height - innerHeight;
+    const p = Math.max(0, Math.min(1, -r.top / total));
+    return Math.min(1, p / 0.82);   // morph done by 82% — the full city rests before the text
+  }
+  let last = -1;
+  function send() {
+    if (!ready) return;
+    const t = progress();
+    if (Math.abs(t - last) < 0.004) return;
+    last = t;
+    city.contentWindow.postMessage({ type: 'gc-elev', t }, '*');
+  }
+  addEventListener('scroll', send, { passive: true });
+  addEventListener('resize', send);
+
+  // roster picks flow to the building: the chosen character takes over the tower
+  const bldg = document.getElementById('bldgFrame');
+  addEventListener('message', (e) => {
+    const d = e.data;
+    if (d && d.type === 'gc-pick') bldg.contentWindow.postMessage({ type: 'gc-char', key: d.key }, '*');
+  });
+
+  // theme switcher: swap the building preview's palette (works for the default tower and repos)
+  const themes = document.getElementById('themes');
+  themes.addEventListener('click', (e) => {
+    const btn = e.target.closest('.theme-dot');
+    if (!btn) return;
+    themes.querySelectorAll('.theme-dot').forEach(b => b.classList.toggle('sel', b === btn));
+    bldg.contentWindow.postMessage({ type: 'gc-scene', scene: btn.dataset.scene }, '*');
+  });
+
+  // your-repo: fetch a public GitHub tree; its densest folder becomes the tower above
+  const repoInput = document.getElementById('repoInput');
+  const repoStatus = document.getElementById('repoStatus');
+  document.getElementById('repoForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    loadRepo(repoInput.value.trim());
+  });
+
+  async function gh(url) {
+    const r = await fetch(url);
+    if (r.status === 403 || r.status === 429) throw new Error('GitHub rate limit hit — try again in a few minutes');
+    if (!r.ok) throw new Error('repo not found — it must be public');
+    return r.json();
+  }
+
+  function toTree(items) {
+    const SKIP = /(^|\/)(\.|node_modules|dist|build|out|target|third_party)/;
+    const dirs = { '': { name: 'app', path: '', type: 'dir', children: [] } };
+    const ensure = (p) => {
+      if (dirs[p]) return dirs[p];
+      const node = { name: p.split('/').pop(), path: p, type: 'dir', children: [] };
+      dirs[p] = node;
+      ensure(p.split('/').slice(0, -1).join('/')).children.push(node);
+      return node;
+    };
+    let files = 0, newDirs = 0;
+    for (const it of items) {
+      if (it.type !== 'blob' || SKIP.test(it.path)) continue;
+      const parts = it.path.split('/');
+      if (parts.length > 4) continue;                      // keep the skyline sane
+      const dp = parts.slice(0, -1).join('/');
+      if (!dirs[dp] && ++newDirs > 28) continue;           // ~28 buildings max
+      const dn = ensure(dp);
+      if (dn.children.filter(c => c.type === 'file').length >= 40) continue;   // 40-floor cap
+      dn.children.push({ name: parts[parts.length - 1], path: it.path, type: 'file' });
+      if (++files >= 380) break;
+    }
+    return dirs[''];
+  }
+
+  async function loadRepo(spec) {
+    const m = spec.match(/(?:github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[\/#?].*)?$/);
+    if (!m) { repoStatus.textContent = 'enter a public repo like github.com/vercel/next.js'; return; }
+    const [, owner, name] = m;
+    repoStatus.textContent = 'fetching ' + owner + '/' + name + '…';
+    try {
+      const meta = await gh(`https://api.github.com/repos/${owner}/${name}`);
+      const tr = await gh(`https://api.github.com/repos/${owner}/${name}/git/trees/${encodeURIComponent(meta.default_branch)}?recursive=1`);
+      const tree = toTree(tr.tree || []);
+      if (!tree.children.length) throw new Error('no files found in that repo');
+      bldg.contentWindow.postMessage({ type: 'gc-repo-tree', tree }, '*');
+      repoStatus.textContent = owner + '/' + name;
+      document.querySelector('.bldg').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (err) {
+      repoStatus.textContent = err.message;
+    }
+  }
+</script>
+</body>
+</html>
