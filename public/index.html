@@ -1640,6 +1640,10 @@ function drawBuildingIso(b, i, gx, gy, N, seq, ghost) {
   const rc = isoS(bx + W_ISO / 2, by + D_ISO / 2);
   let capH = 0;   // extra structure above the roofline, lifts the name pill
 
+  // opaque backing silhouette: hairline antialiasing seams between the many
+  // facade polygons show THIS instead of whatever is behind the building
+  el('polygon', { points: P([topA, topB, B, C, D, topD]), fill: wall }, g);
+
   if (style === 'empire') {
     for (const [h0, h1, f] of [[0, H * 0.52, 1], [H * 0.52, H * 0.78, 0.78], [H * 0.78, H, 0.6]]) {
       isoBox(g, bx, by + D_ISO * (1 - f), W_ISO * f, D_ISO * f, h0, h1, roof, wall, faceR);
@@ -2292,7 +2296,7 @@ function spriteFramesFor(a) {
 }
 function desiredCullR() {
   // the ride bubble must always cover the whole viewport: tight when zoomed deep, wide when pulled back
-  return Math.max(9, Math.min(26, (mapwrap.clientWidth / 2) / (42 * Math.max(1.2, cam.z)) + 6));
+  return Math.max(9, Math.min(40, (Math.max(mapwrap.clientWidth, mapwrap.clientHeight) / 2) / (42 * Math.max(1.05, cam.z)) + 8));
 }
 function followAgent(id) {
   camOn();
