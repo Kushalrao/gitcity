@@ -119,6 +119,11 @@
   .floorlabel.night { fill: rgba(255,255,255,0.55); }
   .floorlabel.active { fill: #111; font-weight: 700; }
   html.dark .floorlabel.active { fill: #fff; }
+  .bldg { transition: filter 0.18s ease-out; }
+  .bldg:hover {
+    filter: brightness(1.07) drop-shadow(0 0 16px rgba(255, 214, 110, 0.85)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.55));
+    cursor: pointer;
+  }
   .floorglow { animation: glowpulse 0.9s ease-in-out infinite; pointer-events: none; }
   @keyframes glowpulse { 0%,100% { opacity: 0.22; } 50% { opacity: 0.48; } }
   .cloud { animation-name: drift; animation-timing-function: ease-in-out; animation-iteration-count: infinite; animation-direction: alternate; }
@@ -1616,7 +1621,7 @@ function drawBuildingIso(b, i, gx, gy, N, seq, ghost) {
   let roof = shade(wall, 1.12, 0.62);   // roof slab in a darker cut of the wall hue
   if (style === 'pagoda' || style === 'dome' || style === 'clock') roof = ROOFS[Math.floor(rnd(i * 7 + 2) * ROOFS.length)];
   const trim = shade(wall, 1.05, 0.72);
-  const g = el('g', {}, svg);
+  const g = el('g', { class: 'bldg' }, svg);
   el('title', {}, g).textContent = b.full;
 
   const { A, B, C, D } = cornersOf(bx, by, W_ISO, D_ISO);
