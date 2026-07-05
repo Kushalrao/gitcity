@@ -1126,7 +1126,6 @@ function buildMap(root) {
     }
     a.moveTo(a.x, a.y);
   }
-  lastProj = { ox: OX, oy: OY, az: AZ };
 }
 
 function drawGround(w, h, spanX, spanY, cols, rows, N) {
@@ -1957,7 +1956,6 @@ function drawFloorIso(g, bi, fi, f, PFt, PRt, ctx, N) {
 let INTRO = true;              // first build plays the construction sequence
 let knownDirs = new Set();     // later, only brand-new buildings rise
 let riseKeys = null;
-let lastProj = { ox: 0, oy: 0, az: AZ };   // projection of the last build, for center-anchored rotation
 
 let treeCache = null;
 async function refreshMap() {
@@ -2657,36 +2655,20 @@ function focusPoint() {
   const m = f || (mainId && agents.get(mainId));
   return m ? { x: m.x, y: m.y } : { x: SPAWN.x, y: SPAWN.y };
 }
-function applyOverviewResidual() {
-  if (cam.active || !svg) return;
-  const d = vAZ - AZ;
-  if (Math.abs(d) < 0.002) { svg.style.transform = ''; return; }
-  const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  svg.style.transformOrigin = `${(mapwrap.scrollLeft + vw / 2).toFixed(1)}px ${(mapwrap.scrollTop + vh / 2).toFixed(1)}px`;
-  svg.style.transform = `rotate(${(d * 180 / Math.PI).toFixed(3)}deg)`;
-}
 function applyRotation() {
   if (rotBusy) { rotDirty = true; return; }
   rotBusy = true;
+  const before = focusPoint();
+  const offX = before.x - mapwrap.scrollLeft, offY = before.y - mapwrap.scrollTop;
+  rebuildScene();
+  const after = focusPoint();
   if (cam.active) {
-    // the follow/zoom camera owns the view: keep its focus pinned
-    const before = focusPoint();
-    rebuildScene();
-    const after = focusPoint();
+    // the follow/zoom camera owns the view: shift it with the world so the focus stays pinned
     cam.x += after.x - before.x;
     cam.y += after.y - before.y;
   } else {
-    // anchor the rotation at the point under the CENTER of the screen
-    const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-    const sx = mapwrap.scrollLeft + vw / 2, sy = mapwrap.scrollTop + vh / 2;
-    const u = (sx - lastProj.ox) / KX, v = (sy - lastProj.oy) / KY;
-    const ix = u * Math.cos(lastProj.az) + v * Math.sin(lastProj.az);
-    const iy = -u * Math.sin(lastProj.az) + v * Math.cos(lastProj.az);
-    rebuildScene();
-    const p = isoS(ix, iy);
-    mapwrap.scrollLeft = p.x - vw / 2;
-    mapwrap.scrollTop = p.y - vh / 2;
-    applyOverviewResidual();
+    mapwrap.scrollLeft = after.x - offX;
+    mapwrap.scrollTop = after.y - offY;
   }
   setTimeout(() => {
     rotBusy = false;
@@ -2697,7 +2679,7 @@ mapwrap.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
   if (followId) { dismount(); return; }   // hop off the agent, stay down in the city
   e.preventDefault();
-  dragPan = { x: e.clientX, y: e.clientY, st: mapwrap.scrollTop, az: vAZ, cx: cam.x, cy: cam.y };
+  dragPan = { x: e.clientX, y: e.clientY, st: mapwrap.scrollTop, az: AZ, cx: cam.x, cy: cam.y };
   mapwrap.classList.add('dragging');
 });
 window.addEventListener('pointermove', (e) => {
@@ -2711,17 +2693,13 @@ window.addEventListener('pointermove', (e) => {
     return;
   }
   mapwrap.scrollTop = dragPan.st - (e.clientY - dragPan.y);
-  // smooth orbit: the visual angle follows the drag every frame,
-  // geometry re-bakes in coarse steps anchored at the screen center
-  vAZ = dragPan.az - (e.clientX - dragPan.x) * 0.0038;
-  applyOverviewResidual();
-  if (!rotBusy && Math.abs(vAZ - AZ) > 0.06) { AZ = vAZ; applyRotation(); }
+  const nextAz = dragPan.az - (e.clientX - dragPan.x) * 0.0038;
+  if (Math.abs(nextAz - AZ) > 0.02) { AZ = nextAz; vAZ = AZ; applyRotation(); }
 });
 function endDrag() {
   if (!dragPan) return;
   dragPan = null;
   mapwrap.classList.remove('dragging');
-  if (!cam.active && Math.abs(vAZ - AZ) > 0.004) { AZ = vAZ; applyRotation(); }
   localStorage.setItem('agentview-az', String(AZ));
 }
 window.addEventListener('pointerup', endDrag);
