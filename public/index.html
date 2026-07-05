@@ -145,9 +145,11 @@ const statusEl = document.getElementById('status');
 /* ---- city constants: a building per folder, a floor per file ---- */
 const FLOOR_H = 26;      // one file = one floor
 const LOBBY_H = 34;      // ground floor with door, awning + folder sign
-const BW = 122;          // building width
-const GAPB = 26;         // gap between buildings (the ladder lives here)
-const GAPBLOCK = 150;    // park gap between top-level blocks
+const BW = 122;          // building width (front facade)
+const DEPTH = 22;        // isometric depth: side wall extends up-right
+const DEPTH_Y = 12;      // vertical rise of the depth vector
+const GAPB = 46;         // gap between buildings (side wall + ladder alley)
+const GAPBLOCK = 170;    // park gap between top-level blocks
 const STREET_H = 104;    // sidewalk + road below the ground line
 const SKY_PAD = 260;     // sky headroom above the tallest tower
 
@@ -1073,26 +1075,38 @@ function drawBuilding(b, i, N) {
   const x = b.x, w = BW, floors = b.files.length;
   const hgt = LOBBY_H + floors * FLOOR_H + 10;
   const top = GROUND - hgt;
+  const D = DEPTH, DY = DEPTH_Y;
   let wall = WALLS[i % WALLS.length];
   if (N) wall = shade(wall, 0.78, 0.42);
   const trim = shade(wall, 1.05, N ? 0.72 : 0.7);
+  const sideCol = shade(wall, 1.02, N ? 0.52 : 0.62);   // shadowed side wall
+  const roofCol = shade(wall, 0.75, N ? 0.6 : 1.16);
   const g = el('g', {}, svg);
 
+  // isometric volume: side wall (up-right), roof plane, then the front facade
+  el('polygon', { points: `${x + w},${top} ${x + w + D},${top - DY} ${x + w + D},${GROUND - DY} ${x + w},${GROUND}`, fill: sideCol }, g);
+  el('polygon', { points: `${x},${top} ${x + w},${top} ${x + w + D},${top - DY} ${x + D},${top - DY}`, fill: roofCol }, g);
   el('rect', { x, y: top, width: w, height: hgt, fill: wall }, g);
-  el('rect', { x: x - 5, y: top - 8, width: w + 10, height: 12, rx: 3, fill: trim }, g);
+  // parapet: front lip + top face
+  el('rect', { x: x - 4, y: top - 6, width: w + 8, height: 9, rx: 2, fill: trim }, g);
+  el('polygon', {
+    points: `${x - 4},${top - 6} ${x + w + 4},${top - 6} ${x + w + 4 + D * 0.8},${top - 6 - DY * 0.8} ${x - 4 + D * 0.8},${top - 6 - DY * 0.8}`,
+    fill: shade(trim, 1, N ? 1.12 : 1.2),
+  }, g);
 
-  // rooftop character: water tower / antenna / AC unit
+  // rooftop character on the roof plane: water tower / antenna / AC unit
   const r = rnd(i * 17 + 3);
+  const ox = 8, oy = -DY + 2;   // nudge props onto the roof plane
   if (r > 0.62) {
-    el('rect', { x: x + w - 46, y: top - 44, width: 4, height: 38, fill: trim }, g);
-    el('rect', { x: x + w - 22, y: top - 44, width: 4, height: 38, fill: trim }, g);
-    el('rect', { x: x + w - 50, y: top - 74, width: 36, height: 33, rx: 4, fill: N ? '#4A3A2E' : '#A8795A' }, g);
-    el('path', { d: `M ${x + w - 52} ${top - 74} L ${x + w - 32} ${top - 90} L ${x + w - 12} ${top - 74} Z`, fill: N ? '#3A2E24' : '#8B6142' }, g);
+    el('rect', { x: x + w - 46 + ox, y: top - 44 + oy, width: 4, height: 38, fill: trim }, g);
+    el('rect', { x: x + w - 22 + ox, y: top - 44 + oy, width: 4, height: 38, fill: trim }, g);
+    el('rect', { x: x + w - 50 + ox, y: top - 74 + oy, width: 36, height: 33, rx: 4, fill: N ? '#4A3A2E' : '#A8795A' }, g);
+    el('path', { d: `M ${x + w - 52 + ox} ${top - 74 + oy} L ${x + w - 32 + ox} ${top - 90 + oy} L ${x + w - 12 + ox} ${top - 74 + oy} Z`, fill: N ? '#3A2E24' : '#8B6142' }, g);
   } else if (r > 0.3) {
-    el('rect', { x: x + 18, y: top - 38, width: 3, height: 32, fill: trim }, g);
-    el('circle', { cx: x + 19.5, cy: top - 40, r: 4, fill: N ? '#FF6B6B' : trim }, g);
+    el('rect', { x: x + 18 + ox, y: top - 38 + oy, width: 3, height: 32, fill: trim }, g);
+    el('circle', { cx: x + 19.5 + ox, cy: top - 40 + oy, r: 4, fill: N ? '#FF6B6B' : trim }, g);
   } else {
-    el('rect', { x: x + w - 38, y: top - 20, width: 26, height: 14, rx: 2, fill: trim }, g);
+    el('rect', { x: x + w - 38 + ox, y: top - 20 + oy, width: 26, height: 14, rx: 2, fill: trim }, g);
   }
 
   // floors, bottom-up: one per file
@@ -1115,7 +1129,7 @@ function drawBuilding(b, i, N) {
   el('title', {}, t).textContent = b.full;
 
   // exterior ladder in the alley on the left
-  const lx = x - 12;
+  const lx = x - 16;
   const lcol = N ? '#5A6273' : '#7A828F';
   el('rect', { x: lx - 5, y: top, width: 2.6, height: hgt, fill: lcol }, g);
   el('rect', { x: lx + 3, y: top, width: 2.6, height: hgt, fill: lcol }, g);
@@ -1135,6 +1149,17 @@ function drawFloor(g, bi, fi, f, x, w, fy, wall, trim, N) {
       stroke: trim, 'stroke-width': 1.2,
     }, g));
   }
+  // window on the isometric side wall
+  {
+    const k = DEPTH_Y / DEPTH;
+    const sx1 = x + w + 5, sx2 = x + w + DEPTH - 5;
+    const o1 = 5 * k, o2 = (DEPTH - 5) * k;
+    const lit = N && rnd(bi * 131 + fi * 17 + 91) > 0.6;
+    wins.push(el('polygon', {
+      points: `${sx1},${fy + 6 - o1} ${sx2},${fy + 6 - o2} ${sx2},${fy + FLOOR_H - 6 - o2} ${sx1},${fy + FLOOR_H - 6 - o1}`,
+      fill: lit ? '#EDC372' : (N ? '#1D2740' : 'rgba(0,0,0,0.16)'),
+    }, g));
+  }
   const label = el('text', { class: 'floorlabel' + (N ? ' night' : ''), x: x + 52, y: fy + FLOOR_H / 2 + 3 }, g);
   label.textContent = f.name.length > 11 ? f.name.slice(0, 10) + '…' : f.name;
   el('title', {}, label).textContent = f.path;
@@ -1142,7 +1167,7 @@ function drawFloor(g, bi, fi, f, x, w, fy, wall, trim, N) {
     class: 'floorglow', x: x + 2, y: fy + 2, width: w - 4, height: FLOOR_H - 4, rx: 4,
     fill: '#FFD98A', visibility: 'hidden',
   }, g);
-  return { perchX: x + w / 2, floorY: fy + FLOOR_H - 2, ladderX: x - 12, glow, wins, label };
+  return { perchX: x + w / 2, floorY: fy + FLOOR_H - 2, ladderX: x - 16, glow, wins, label };
 }
 
 async function refreshMap() {
