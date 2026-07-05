@@ -805,6 +805,35 @@ for (const [key, name, grids, colors] of EXTRA) {
   };
 }
 
+/* ---- headgear: distinctive silhouettes per character ----
+   rows use the character's own palette letters; drop = rows merged onto the head */
+const HAT_COWBOY  = { rows: ['....CCCC....', '....CCCC....', '.CCCCCCCCCC.'], drop: 1 };
+const HAT_POINTY  = { rows: ['......CC....', '.....CCC....', '....CCCC....', '.CCCCCCCCCC.'], drop: 1 };
+const HAT_CROWN   = { rows: ['...B.BB.B...', '...BBBBBB...'], drop: 0 };
+const HAT_TOPHAT  = { rows: ['....CCCC....', '....CCCC....', '..CCCCCCCC..'], drop: 1 };
+const HAT_FEDORA  = { rows: ['....CCCC....', '..CCCCCCCC..'], drop: 1 };
+const HAT_CHEF    = { rows: ['...CCCCCC...', '...CCCCCC...', '...CCCCCC...'], drop: 1 };
+const HAT_HORNS   = { rows: ['.B........B.', '.BCCCCCCCCB.'], drop: 1 };
+const HAT_SANTA   = { rows: ['....CCCCWW..'], drop: 0 };
+const HAT_POLICE  = { rows: ['...CCCCCC...', '..CCBCCCCC..'], drop: 1 };
+const HAT_PLUME   = { rows: ['.....BB.....', '.....BB.....'], drop: 0 };
+const HAT_CREST   = { rows: ['..B......B..', '...B....B...'], drop: 0 };
+const HAT_TRICORN = { rows: ['.HH......HH.', '..HHHHHHHH..'], drop: 1 };
+const HAT_ANTENNA = { rows: ['......B.....', '......C.....'], drop: 0 };
+const HAT_BERET   = { rows: ['..CCCCCCC...'], drop: 1 };
+const HAT_SAILOR  = { rows: ['...CCCCCC...', '..HHHHHHHH..'], drop: 2 };
+const HAT_JESTER  = { rows: ['..B..BB..B..', '..CCCCCCCC..'], drop: 1 };
+const HAT_ASSIGN = {
+  cowboy: HAT_COWBOY, outlaw: HAT_FEDORA, adventurer: HAT_FEDORA, secretagent: HAT_FEDORA,
+  tramp: HAT_TOPHAT, wizard: HAT_POINTY, greywizard: HAT_POINTY, witch: HAT_POINTY,
+  king: HAT_CROWN, queen: HAT_CROWN, chef: HAT_CHEF, builder: HAT_FEDORA,
+  firefighter: HAT_FEDORA, cop: HAT_POLICE, viking: HAT_HORNS, santa: HAT_SANTA,
+  pirate: HAT_TRICORN, knight: HAT_PLUME, samurai: HAT_CREST, robot: HAT_ANTENNA,
+  mime: HAT_BERET, sailor: HAT_SAILOR, jester: HAT_JESTER,
+};
+for (const [key, hat] of Object.entries(HAT_ASSIGN)) if (CHARACTERS[key]) CHARACTERS[key].hat = hat;
+CHARACTERS.santa.colors.W = '#FFFFFF';   // pom on the santa hat
+
 let charKey = localStorage.getItem('agentview-char');
 if (!CHARACTERS[charKey]) charKey = 'plumber';
 
@@ -822,13 +851,33 @@ function buildFrame(parent, rows, colors) {
       const c = colors[row[cx]];
       if (!c) continue;
       el('rect', {
-        x: (cx - 6) * PIXEL, y: (ry - 16) * PIXEL,
+        x: (cx - 6) * PIXEL, y: (ry - rows.length) * PIXEL,
         width: PIXEL + 0.06, height: PIXEL + 0.06, fill: c,
       }, fg);
     }
   });
   return fg;
 }
+
+/* Composite a hat onto a frame: the hat's bottom `drop` rows merge onto the
+   head's top rows, the rest stack above (frame grows upward, feet stay put). */
+function decorate(rows, hat) {
+  const anchor = rows.findIndex(r => r.includes('C'));
+  if (anchor < 0) return rows;
+  const out = rows.slice();
+  const above = hat.rows.length - hat.drop;
+  for (let i = 0; i < hat.drop; i++) {
+    const hr = hat.rows[above + i], br = out[anchor + i] || '............';
+    out[anchor + i] = hr.split('').map((ch, x) => (ch === '.' ? br[x] : ch)).join('');
+  }
+  out.splice(anchor, 0, ...hat.rows.slice(0, above));
+  return out;
+}
+const frameRows = def => {
+  const g = def.grids;
+  const all = [g.stand, ...g.run, ...g.work];
+  return def.hat ? all.map(r => decorate(r, def.hat)) : all;
+};
 
 let svg = null;
 let stations = new Map();  // file path -> {x, y, dir, dot, label, color}
@@ -976,12 +1025,17 @@ function rebuildSprite(a) {
   const colors = { ...def.colors, ...patch };
   const grids = def.grids;
   a.pose.replaceChildren();
-  a.frames = [grids.stand, ...grids.run, ...grids.work].map(rows => buildFrame(a.pose, rows, colors));
+  a.frames = frameRows(def).map(rows => buildFrame(a.pose, rows, colors));
   a.runCycle = grids.runCycle;
   a.workBase = 1 + grids.run.length;
   a.workCount = grids.work.length;
   a.frame = -1;
   a.setFrame(a.state === 'working' ? a.workBase : 0);
+  // lift the speech bubble above tall headgear
+  const added = def.hat ? def.hat.rows.length - def.hat.drop : 0;
+  const baseY = (a.isKid ? -58 : -84) - added * PIXEL * (a.isKid ? KID_SCALE : 1);
+  a.bubbleBg.setAttribute('y', baseY);
+  a.bubbleText.setAttribute('y', baseY + 15);
 }
 
 function makeAgent(id) {
@@ -1207,8 +1261,9 @@ function connect() {
 
 /* ---------- character picker ---------- */
 function miniSprite(def) {
-  const s = el('svg', { width: 38, height: 46, viewBox: '-27 -70 54 74' });
-  buildFrame(el('g', {}, s), def.grids.stand, def.colors);
+  const s = el('svg', { width: 38, height: 48, viewBox: '-27 -88 54 92' });
+  const stand = def.hat ? decorate(def.grids.stand, def.hat) : def.grids.stand;
+  buildFrame(el('g', {}, s), stand, def.colors);
   return s;
 }
 function applyCharacter(key) {
