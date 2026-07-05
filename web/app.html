@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>git city</title>
+<link rel="icon" type="image/svg+xml" href="logo.svg" />
 <script>
   (function () {
     const saved = localStorage.getItem('agentview-theme');
@@ -3312,8 +3313,9 @@ function renderRoster() {
   mapwrap.style.overflow = 'hidden';
   mapwrap.style.background = 'transparent';
   const grid = document.createElement('div');
-  const rcols = Math.min(12, Math.max(4, Math.floor((innerWidth - 36) / 78)));
-  grid.style.cssText = `display:grid;grid-template-columns:repeat(${rcols},68px);gap:12px 10px;padding:18px;justify-content:center;align-content:start;`;
+  // fixed-size cells, edge to edge: however many 64px columns fit the viewport wrap onto
+  // as many rows as needed, with justify-content spreading each row flush to both edges
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,64px);gap:12px 0;padding:18px 0;justify-content:space-between;align-content:start;`;
   mapwrap.appendChild(grid);
 
   for (const [key, def] of Object.entries(CHARACTERS)) {
