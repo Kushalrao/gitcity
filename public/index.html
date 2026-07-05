@@ -54,10 +54,11 @@
     font: 13px/1.5 -apple-system, "SF Pro Text", "Helvetica Neue", sans-serif;
     height: 100vh; overflow: hidden;
   }
-  #mapwrap { width: 100%; height: 100%; overflow: auto; background: var(--bg); cursor: grab; user-select: none; -webkit-user-select: none; }
+  #mapwrap { width: 100%; height: 100%; overflow: hidden; background: var(--bg); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
   #mapwrap.dragging { cursor: grabbing; }
-  #mapwrap.following { overflow: hidden; }
-  svg { display: block; will-change: transform; }
+  svg { display: block; }
+  /* floor labels are the heaviest text in the scene — drop them when zoomed out */
+  svg.lowzoom .floorlabel { display: none; }
   #followHud {
     position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 25;
     display: none; background: var(--panel); backdrop-filter: blur(4px);
@@ -136,8 +137,46 @@
   .agent .bubble-text { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace; fill: var(--bubble-text); }
   .agent .bubble-verb { font-weight: 700; }
 
+  /* zoom controls (bottom-right, from the classic canvas) */
+  #zoomctl { position: fixed; right: 14px; bottom: 14px; z-index: 20; display: flex;
+    align-items: center; gap: 4px; background: var(--panel); backdrop-filter: blur(6px);
+    border: 1px solid var(--panel-border); border-radius: 12px; padding: 5px;
+    box-shadow: 0 4px 14px var(--shadow); }
+  #zoomctl button { width: 30px; height: 30px; border: none; border-radius: 8px;
+    background: transparent; color: var(--fg); font-size: 16px; line-height: 1;
+    cursor: pointer; font-family: inherit; }
+  #zoomctl button:hover { background: var(--hud-border); }
+  #zoomval { min-width: 44px; text-align: center; font: 11px ui-monospace, Menlo, monospace; color: var(--dim); }
+
+  /* agent roster (top-right): live status per agent, click to follow */
+  #roster { position: fixed; top: 14px; right: 14px; z-index: 20; width: 268px;
+    max-height: calc(100vh - 84px); overflow: auto; background: var(--panel);
+    backdrop-filter: blur(8px); border: 1px solid var(--panel-border); border-radius: 14px;
+    box-shadow: 0 6px 22px var(--shadow); }
+  #roster h3 { font: 600 11px ui-monospace, Menlo, monospace; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--dim); padding: 11px 14px 7px; }
+  #roster .empty { padding: 0 14px 12px; color: var(--dim); font-size: 11px; }
+  .rrow { display: flex; align-items: center; gap: 9px; padding: 7px 10px; margin: 0 6px 4px;
+    border-radius: 10px; cursor: pointer; transition: background 0.12s; }
+  .rrow:hover { background: var(--hud-border); }
+  .rrow.followed { background: #eef4ff; box-shadow: inset 0 0 0 1px #cfe0ff; }
+  html.dark .rrow.followed { background: #263349; box-shadow: inset 0 0 0 1px #3a5580; }
+  .rrow .rav { width: 26px; height: 30px; flex: 0 0 auto; display: flex; align-items: flex-end; justify-content: center; }
+  .rrow .rmeta { min-width: 0; flex: 1; }
+  .rrow .rname { display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-weight: 600;
+    color: var(--fg); white-space: nowrap; overflow: hidden; }
+  .rrow .rlabel { overflow: hidden; text-overflow: ellipsis; }
+  .rrow .rid { flex: 0 0 auto; font: 9.5px ui-monospace, Menlo, monospace; font-weight: 400; color: var(--dim); }
+  .rrow .rstatus { display: flex; align-items: center; gap: 5px; color: var(--dim);
+    font: 10.5px ui-monospace, Menlo, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rrow .rstatus span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .rdot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; background: var(--station); }
+  .rdot.moving { background: #FF9F0A; box-shadow: 0 0 5px #FF9F0A66; }
+  .rdot.working { background: #2fbf62; box-shadow: 0 0 5px #2fbf6288; }
+  .rdot.idle { background: var(--station); }
+
   #themeBtn {
-    position: fixed; right: 14px; top: 14px; z-index: 20;
+    position: fixed; right: 296px; top: 14px; z-index: 21;
     width: 38px; height: 38px; border-radius: 50%;
     background: var(--panel); backdrop-filter: blur(4px);
     border: 1px solid var(--panel-border); box-shadow: 0 2px 8px var(--shadow);
@@ -156,6 +195,13 @@
   </div>
   <button id="themeBtn" title="toggle day / night"></button>
   <div id="followHud"></div>
+  <aside id="roster"><h3>Agents</h3><div id="rlist"><div class="empty">waiting for agents…</div></div></aside>
+  <div id="zoomctl">
+    <button id="zout" title="Zoom out">–</button>
+    <span id="zoomval">100%</span>
+    <button id="zin" title="Zoom in">+</button>
+    <button id="zfit" title="Fit to screen">⤢</button>
+  </div>
   <div id="hud"><span id="status"></span><span id="watchdir">connecting…</span></div>
 
 <script>
@@ -190,8 +236,12 @@ let mainId = null;
 const VERBS = {
   Edit: ['editing','edit'], MultiEdit: ['editing','edit'], NotebookEdit: ['editing','edit'],
   Write: ['writing','write'], Read: ['reading','read'], FsChange: ['changed','fs'],
+  Bash: ['running','run'], Grep: ['searching for','search'], Glob: ['scanning for','search'],
+  Task: ['delegating:','task'], WebFetch: ['fetching','web'], WebSearch: ['searching','web'],
 };
-const VERB_COLOR = { read: '#00933C', edit: '#FF6319', write: '#B933AD', fs: '#9a9a9a' };
+const VERB_COLOR = { read: '#00933C', edit: '#FF6319', write: '#B933AD', fs: '#9a9a9a',
+  run: '#2456d6', search: '#7a5cc9', task: '#d97b06', web: '#0a9396' };
+const trunc = (s, n) => (s && s.length > n ? s.slice(0, n - 1) + '…' : s || '');
 
 /* ---- characters (original pixel sprites, 12x16, feet on the bottom row) ----
    Letters map to per-character colors; T is always the tool. */
@@ -906,10 +956,15 @@ const frameRows = def => {
   return def.hat ? all.map(r => decorate(r, def.hat)) : all;
 };
 
-let svg = null;
+let svg = null;            // the scene group all draw functions target (swapped per rebuild)
+let svgRoot = null;        // the one persistent <svg>, sized to the container
+let viewportG = null;      // pans + zooms everything (scene + agents) together
+let contentG = null;       // holds the scene group, replaced wholesale on rebuild
 let stations = new Map();  // file path -> {streetIso, vx, base, wallFoot, ladderTop, perch, wayDown, glow, wins, label}
 let agents = new Map();
 let agentLayer = null;
+let contentBounds = null;  // world bbox of the city, for fitView
+let LOD = false;           // low-detail rebuilds while orbit-dragging big cities
 let OX = 0, OY = 0;        // iso origin on the canvas
 let AZ = parseFloat(localStorage.getItem('agentview-az') || String(Math.PI / 4));   // camera azimuth — drag to orbit
 const KX = K * Math.SQRT2, KY = K2 * Math.SQRT2;
@@ -936,6 +991,7 @@ const rnd = n => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x 
 const night = () => document.documentElement.classList.contains('dark');
 const shade = (hex, sMul, lMul) => { const [h, s, l] = hexHsl(hex); return hslHex(h, Math.min(1, s * sMul), Math.min(1, l * lMul)); };
 const P = pts => pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+const PD = pts => 'M' + pts.map(p => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join('L') + 'Z';   // polygon → path subpath
 
 /* candy-city palette (reference style): saturated walls, pastel roof slabs, teal glass */
 const WALLS = ['#2FB0C7', '#F27BAD', '#8F7BE8', '#4FC77B', '#4F7BE8', '#F2A055', '#E86A5A', '#C77BE8', '#E8C13F', '#7BD9E8'];
@@ -967,6 +1023,7 @@ function flattenDirs(root) {
 }
 
 function buildMap(root) {
+  const tBuild = performance.now();
   const dirs = flattenDirs(root);
   const N = night();
 
@@ -995,15 +1052,22 @@ function buildMap(root) {
   const width = Math.max(maxX - minX + 340, mapwrap.clientWidth);
   const height = Math.max(maxY - minY + maxH + 300, mapwrap.clientHeight);
 
+  const totalFiles = dirs.reduce((n, d) => n + d.files.length, 0);
+  if (dirs.length > 120 || totalFiles > 800) INTRO = false;   // big city: skip the construction show
+
   const oldAgents = [...agents.values()];
   stations = new Map();
-  mapwrap.replaceChildren();
-  svg = el('svg', { width, height, viewBox: `0 0 ${width} ${height}` });
-  mapwrap.appendChild(svg);
+  // build the whole scene detached, then swap it in — one layout, not thousands
+  svg = el('g', {});
 
-  riseKeys = INTRO ? 'all' : new Set(dirs.filter(d => !knownDirs.has(d.key)).map(d => d.key));
+  riseKeys = (INTRO && !LOD) ? 'all' : new Set(LOD ? [] : dirs.filter(d => !knownDirs.has(d.key)).map(d => d.key));
   knownDirs = new Set(dirs.map(d => d.key));
   if (INTRO) svg.style.animation = 'fadein 0.45s ease-out backwards';
+
+  contentBounds = {
+    minX: 70, minY: 70,
+    maxX: maxX - minX + 270, maxY: maxY - minY + maxH + 270,
+  };
 
   drawGround(width, height, spanX, spanY, cols, rows, N);
 
@@ -1021,13 +1085,13 @@ function buildMap(root) {
     else drawBuildingIso(it, colorOf.get(it), gx, gy, N, seq++);
   }
 
-  drawWeather(width, height, spanX, spanY, N);
+  if (!LOD) drawWeather(width, height, spanX, spanY, N);
 
   SPAWN.iso = { x: -1, y: PITCH_Y - S_ISO / 2 };
   const sp = isoS(SPAWN.iso.x, SPAWN.iso.y);
   SPAWN.x = sp.x; SPAWN.y = sp.y;
 
-  agentLayer = el('g', {}, svg);
+  contentG.replaceChildren(svg);   // single DOM swap
   for (const a of oldAgents) {
     agentLayer.appendChild(a.g);
     const st = a.lastFile && stations.get(a.lastFile);
@@ -1041,41 +1105,49 @@ function buildMap(root) {
     }
     a.moveTo(a.x, a.y);
   }
+  lastBuildMs = performance.now() - tBuild;   // drag LOD keys off real build cost
 }
 
 function drawGround(w, h, spanX, spanY, cols, rows, N) {
-  // grass world, paved plaza, street grid
-  el('rect', { x: 0, y: 0, width: w, height: h, fill: N ? '#16281E' : '#FAFBEE' }, svg);
+  // grass world, paved plaza, street grid — the grass fills the whole canvas
+  mapwrap.style.background = N ? '#16281E' : '#FAFBEE';
   const gx0 = -S_ISO, gx1 = spanX, gy0 = -S_ISO, gy1 = spanY;
   el('polygon', { points: P([isoS(gx0 - 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy1 + 0.6), isoS(gx0 - 0.6, gy1 + 0.6)]), fill: N ? '#2C3140' : '#C6D3E4' }, svg);
 
   const asph = N ? '#20242F' : '#8CA3C4';
   const dash = N ? '#7A8296' : '#F5F8FC';
+  // all road bands share one fill, all lane dashes another — one <path> each
+  const sub = PD;
+  let bandD = '', dashD = '';
   for (let gy = 0; gy <= rows; gy++) {
     const y0 = gy * PITCH_Y - S_ISO;
-    el('polygon', { points: P([isoS(gx0, y0), isoS(gx1, y0), isoS(gx1, y0 + S_ISO), isoS(gx0, y0 + S_ISO)]), fill: asph }, svg);
+    bandD += sub([isoS(gx0, y0), isoS(gx1, y0), isoS(gx1, y0 + S_ISO), isoS(gx0, y0 + S_ISO)]);
     const cy = y0 + S_ISO / 2;
-    for (let ix = 0; ix < spanX; ix += 1.5) {
-      el('polygon', { points: P([isoS(ix, cy - 0.05), isoS(ix + 0.65, cy - 0.05), isoS(ix + 0.65, cy + 0.05), isoS(ix, cy + 0.05)]), fill: dash }, svg);
+    if (!LOD) for (let ix = 0; ix < spanX; ix += 1.5) {
+      dashD += sub([isoS(ix, cy - 0.05), isoS(ix + 0.65, cy - 0.05), isoS(ix + 0.65, cy + 0.05), isoS(ix, cy + 0.05)]);
     }
   }
   for (let gx = 0; gx <= cols; gx++) {
     const x0 = gx * PITCH_X - S_ISO;
-    el('polygon', { points: P([isoS(x0, gy0), isoS(x0 + S_ISO, gy0), isoS(x0 + S_ISO, gy1), isoS(x0, gy1)]), fill: asph }, svg);
+    bandD += sub([isoS(x0, gy0), isoS(x0 + S_ISO, gy0), isoS(x0 + S_ISO, gy1), isoS(x0, gy1)]);
     const cx = x0 + S_ISO / 2;
-    for (let iy = 0; iy < spanY; iy += 1.5) {
-      el('polygon', { points: P([isoS(cx - 0.05, iy), isoS(cx + 0.05, iy), isoS(cx + 0.05, iy + 0.65), isoS(cx - 0.05, iy + 0.65)]), fill: dash }, svg);
+    if (!LOD) for (let iy = 0; iy < spanY; iy += 1.5) {
+      dashD += sub([isoS(cx - 0.05, iy), isoS(cx + 0.05, iy), isoS(cx + 0.05, iy + 0.65), isoS(cx - 0.05, iy + 0.65)]);
     }
   }
+  el('path', { d: bandD, fill: asph }, svg);
+  if (dashD) el('path', { d: dashD, fill: dash }, svg);
+  if (LOD) return;   // streets only — decorations skipped while orbiting
   // crosswalks + manholes + corner lamps
   const zebra = N ? '#8A93A6' : '#F2EFE4';
+  let zebraD = '';
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx < cols; gx++) {
       if (rnd(gx * 7 + gy * 13) < 0.45) continue;
       const y0 = gy * PITCH_Y - S_ISO;
       for (let s = 0; s < 4; s++) {
         const x0 = gx * PITCH_X + 0.3 + s * 0.42;
-        el('polygon', { points: P([isoS(x0, y0 + 0.18), isoS(x0 + 0.24, y0 + 0.18), isoS(x0 + 0.24, y0 + S_ISO - 0.18), isoS(x0, y0 + S_ISO - 0.18)]), fill: zebra, opacity: 0.9 }, svg);
+        zebraD += sub([isoS(x0, y0 + 0.18), isoS(x0 + 0.24, y0 + 0.18), isoS(x0 + 0.24, y0 + S_ISO - 0.18), isoS(x0, y0 + S_ISO - 0.18)]);
       }
       if (rnd(gx * 3 + gy * 11 + 5) > 0.7) {
         const m = isoS(gx * PITCH_X + 1.8, y0 + S_ISO / 2 + 0.3);
@@ -1083,6 +1155,7 @@ function drawGround(w, h, spanX, spanY, cols, rows, N) {
       }
     }
   }
+  if (zebraD) el('path', { d: zebraD, fill: zebra, opacity: 0.9 }, svg);
   for (let gy = 0; gy <= rows; gy++) {
     for (let gx = 0; gx <= cols; gx++) {
       if ((gx + gy) % 2) continue;
@@ -1220,6 +1293,7 @@ function drawParkLot(gx, gy, N) {
     points: P([isoS(bx + 0.1, by + 0.1), isoS(bx + W_ISO - 0.1, by + 0.1), isoS(bx + W_ISO - 0.1, by + D_ISO - 0.1), isoS(bx + 0.1, by + D_ISO - 0.1)]),
     fill: N ? '#22402C' : '#9CCB6B',
   }, svg);
+  if (LOD) return;   // just the lawn while orbiting
   // winding path
   const p1 = isoS(bx + 0.2, by + D_ISO * 0.55), p2 = isoS(bx + W_ISO * 0.5, by + D_ISO * 0.35), p3 = isoS(bx + W_ISO - 0.15, by + D_ISO * 0.7);
   el('path', { d: `M ${p1.x} ${p1.y} Q ${p2.x} ${p2.y} ${p3.x} ${p3.y}`, stroke: N ? '#3A4152' : '#E8DFC8', 'stroke-width': 9, fill: 'none', 'stroke-linecap': 'round', opacity: 0.85 }, svg);
@@ -1288,49 +1362,55 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
 
   const { A, B, C, D } = cornersOf(bx, by, W_ISO, D_ISO);
   const ang = Math.atan2(C.y - D.y, C.x - D.x) * 180 / Math.PI;   // slope of the front wall
-  // cast shadow to the lower-left
-  const sh = Math.min(H, 170);
-  const sv = { x: -sh * 0.5, y: sh * 0.25 };
-  el('polygon', {
-    points: P([D, C, { x: C.x + sv.x, y: C.y + sv.y }, { x: D.x + sv.x, y: D.y + sv.y }]),
-    fill: '#2B3345', opacity: N ? 0.35 : 0.16,
-  }, g);
+  if (!LOD) {
+    // cast shadow to the lower-left
+    const sh = Math.min(H, 170);
+    const sv = { x: -sh * 0.5, y: sh * 0.25 };
+    el('polygon', {
+      points: P([D, C, { x: C.x + sv.x, y: C.y + sv.y }, { x: D.x + sv.x, y: D.y + sv.y }]),
+      fill: '#2B3345', opacity: N ? 0.35 : 0.16,
+    }, g);
+  }
 
   // the volume + wide pastel roof slab with an inset deck
   isoBox(g, bx, by, W_ISO, D_ISO, 0, H, roof, wall, faceR);
-  el('polygon', {
-    points: P([{ x: A.x, y: A.y - H }, { x: B.x, y: B.y - H }, { x: C.x, y: C.y - H }, { x: D.x, y: D.y - H }]),
-    fill: 'none', stroke: shade(roof, 1, N ? 0.75 : 0.85), 'stroke-width': 2.5,
-  }, g);
-  el('polygon', {
-    points: P([isoS(bx + 0.28, by + 0.28), isoS(bx + W_ISO - 0.28, by + 0.28), isoS(bx + W_ISO - 0.28, by + D_ISO - 0.28), isoS(bx + 0.28, by + D_ISO - 0.28)].map(p => ({ x: p.x, y: p.y - H }))),
-    fill: shade(roof, 1, N ? 1.12 : 1.08),
-  }, g);
+  if (!LOD) {
+    el('polygon', {
+      points: P([{ x: A.x, y: A.y - H }, { x: B.x, y: B.y - H }, { x: C.x, y: C.y - H }, { x: D.x, y: D.y - H }]),
+      fill: 'none', stroke: shade(roof, 1, N ? 0.75 : 0.85), 'stroke-width': 2.5,
+    }, g);
+    el('polygon', {
+      points: P([isoS(bx + 0.28, by + 0.28), isoS(bx + W_ISO - 0.28, by + 0.28), isoS(bx + W_ISO - 0.28, by + D_ISO - 0.28), isoS(bx + 0.28, by + D_ISO - 0.28)].map(p => ({ x: p.x, y: p.y - H }))),
+      fill: shade(roof, 1, N ? 1.12 : 1.08),
+    }, g);
+  }
 
   // face helpers: point at fraction t along a wall, elevated h px
   const PF = (t, h) => ({ x: D.x + (C.x - D.x) * t, y: D.y + (C.y - D.y) * t - h });   // front-left wall
   const PR = (t, h) => ({ x: C.x + (B.x - C.x) * t, y: C.y + (B.y - C.y) * t - h });   // front-right wall
 
   // lobby: door with light + striped awning on the front wall
-  el('polygon', { points: P([PF(0.62, 0), PF(0.84, 0), PF(0.84, 15), PF(0.62, 15)]), fill: shade(wall, 1, 0.45) }, g);
-  const dl = PF(0.8, 8);
-  el('circle', { cx: dl.x, cy: dl.y, r: 1.6, fill: '#FFD98A' }, g);
-  for (let s = 0; s < 4; s++) {
-    el('polygon', {
-      points: P([PF(0.60 + s * 0.065, 15), PF(0.665 + s * 0.065, 15), PF(0.665 + s * 0.065, 20), PF(0.60 + s * 0.065, 20)]),
-      fill: s % 2 ? (N ? '#8A93A6' : '#F2EFE4') : trim,
-    }, g);
+  if (!LOD) {
+    el('polygon', { points: P([PF(0.62, 0), PF(0.84, 0), PF(0.84, 15), PF(0.62, 15)]), fill: shade(wall, 1, 0.45) }, g);
+    const dl = PF(0.8, 8);
+    el('circle', { cx: dl.x, cy: dl.y, r: 1.6, fill: '#FFD98A' }, g);
+    for (let s = 0; s < 4; s++) {
+      el('polygon', {
+        points: P([PF(0.60 + s * 0.065, 15), PF(0.665 + s * 0.065, 15), PF(0.665 + s * 0.065, 20), PF(0.60 + s * 0.065, 20)]),
+        fill: s % 2 ? (N ? '#8A93A6' : '#F2EFE4') : trim,
+      }, g);
+    }
   }
 
   // graffiti tag on the shadowed wall of some buildings
-  if (rnd(i * 29 + 7) > 0.6) {
+  if (!LOD && rnd(i * 29 + 7) > 0.6) {
     const gc = ['#F26AA0', '#6AE0C8', '#F2C21F'][Math.floor(rnd(i * 3) * 3)];
     el('polygon', { points: P([PR(0.15, 4), PR(0.5, 8), PR(0.5, 15), PR(0.15, 10)]), fill: gc, opacity: 0.75 }, g);
     el('polygon', { points: P([PR(0.52, 6), PR(0.8, 4), PR(0.8, 12), PR(0.52, 13)]), fill: shade(gc, 1, 1.2), opacity: 0.7 }, g);
   }
 
   // square "brand" plate with the folder's initial, mounted high on the facade
-  if (H > 70) {
+  if (!LOD && H > 70) {
     const h1 = H - 12, h0 = H - 36;
     el('polygon', { points: P([PF(0.68, h1), PF(0.96, h1), PF(0.96, h0), PF(0.68, h0)]), fill: N ? '#E8ECF2' : '#FFFFFF', stroke: shade(wall, 1, 0.5), 'stroke-width': 1.5 }, g);
     const lp2 = PF(0.82, (h0 + h1) / 2 - 5);
@@ -1353,7 +1433,7 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
 
   // rooftop life: water tower / roof garden / AC + antenna
   const r = rnd(i * 17 + 3);
-  if (r > 0.6) {
+  if (LOD) { /* skip rooftop props while orbiting */ } else if (r > 0.6) {
     const t = isoBox(g, bx + W_ISO - 1.3, by + 0.4, 0.85, 0.85, H + 6, H + 30, N ? '#3A2E24' : '#8B6142', N ? '#4A3A2E' : '#A8795A', N ? '#3E3026' : '#96684A');
     const tc = isoS(bx + W_ISO - 0.875, by + 0.825);
     el('polygon', { points: P([{ x: tc.x - 20, y: tc.y - H - 30 }, { x: tc.x, y: tc.y - H - 44 }, { x: tc.x + 20, y: tc.y - H - 30 }]), fill: N ? '#332620' : '#7E5C40' }, g);
@@ -1371,12 +1451,14 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
 
   // roof sign with the folder name + giant painted initial
   const rc = isoS(bx + W_ISO / 2, by + D_ISO / 2);
-  const gi = el('text', {
-    x: rc.x, y: rc.y - H + 12, 'text-anchor': 'middle',
-    transform: `rotate(${ang.toFixed(1)} ${rc.x} ${rc.y - H + 12})`,
-    style: `font: 800 30px ui-monospace, Menlo, monospace; fill: ${N ? '#FFFFFF14' : '#00000018'}`,
-  }, g);
-  gi.textContent = b.name[0].toUpperCase();
+  if (!LOD) {
+    const gi = el('text', {
+      x: rc.x, y: rc.y - H + 12, 'text-anchor': 'middle',
+      transform: `rotate(${ang.toFixed(1)} ${rc.x} ${rc.y - H + 12})`,
+      style: `font: 800 30px ui-monospace, Menlo, monospace; fill: ${N ? '#FFFFFF14' : '#00000018'}`,
+    }, g);
+    gi.textContent = b.name[0].toUpperCase();
+  }
   const sw = 16 + b.name.length * 6.4;
   el('rect', { x: rc.x - sw / 2, y: rc.y - H - 9, width: sw, height: 15, rx: 7, fill: N ? '#101828' : '#2B2F3A', opacity: 0.92 }, g);
   const t = el('text', { class: 'signtext', x: rc.x, y: rc.y - H + 2, 'text-anchor': 'middle' }, g);
@@ -1384,12 +1466,14 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
   el('title', {}, t).textContent = b.full;
 
   // ladder up the front wall
-  const lf = PF(0.15, 0);
-  const lcol = N ? '#5A6273' : '#4E5560';
-  el('rect', { x: lf.x - 5, y: lf.y - H + 6, width: 2.4, height: H - 6, fill: lcol }, g);
-  el('rect', { x: lf.x + 3, y: lf.y - H + 6, width: 2.4, height: H - 6, fill: lcol }, g);
-  for (let ry = lf.y - 6; ry > lf.y - H + 8; ry -= 8) {
-    el('rect', { x: lf.x - 5, y: ry, width: 10.4, height: 2, fill: lcol }, g);
+  if (!LOD) {
+    const lf = PF(0.15, 0);
+    const lcol = N ? '#5A6273' : '#4E5560';
+    el('rect', { x: lf.x - 5, y: lf.y - H + 6, width: 2.4, height: H - 6, fill: lcol }, g);
+    el('rect', { x: lf.x + 3, y: lf.y - H + 6, width: 2.4, height: H - 6, fill: lcol }, g);
+    for (let ry = lf.y - 6; ry > lf.y - H + 8; ry -= 8) {
+      el('rect', { x: lf.x - 5, y: ry, width: 10.4, height: 2, fill: lcol }, g);
+    }
   }
 
   // construction: reveal snaps to real floor lines, dust puffs as each lands
@@ -1435,33 +1519,41 @@ function puffAt(x, y, N) {
 function drawFloorIso(g, bi, fi, f, PF, PR, ctx, N) {
   const hb = LOBBY_HZ + fi * FLOOR_HZ, ht = hb + FLOOR_HZ;
   const wins = [];
-  // vertical glass strips across the facade, reference style
-  for (let wi = 0; wi < 4; wi++) {
-    const t0 = 0.06 + wi * 0.135, t1 = t0 + 0.085;
-    const lit = N && rnd(bi * 131 + fi * 17 + wi * 7) > 0.55;
-    wins.push(el('polygon', {
-      points: P([PF(t0, ht - 2.5), PF(t1, ht - 2.5), PF(t1, hb + 2.5), PF(t0, hb + 2.5)]),
-      fill: lit ? '#FFD98A' : (N ? '#25314A' : GLASS),
-      stroke: lit ? 'none' : GLASS_D, 'stroke-width': 0.8,
+  // vertical glass strips across the facade — unlit strips merge into one path per face
+  if (!LOD) {
+    let frontD = '';
+    for (let wi = 0; wi < 4; wi++) {
+      const t0 = 0.06 + wi * 0.135, t1 = t0 + 0.085;
+      const pts = [PF(t0, ht - 2.5), PF(t1, ht - 2.5), PF(t1, hb + 2.5), PF(t0, hb + 2.5)];
+      const lit = N && rnd(bi * 131 + fi * 17 + wi * 7) > 0.55;
+      if (lit) wins.push(el('polygon', { points: P(pts), fill: '#FFD98A' }, g));
+      else frontD += PD(pts);
+    }
+    if (frontD) wins.push(el('path', {
+      d: frontD, fill: N ? '#25314A' : GLASS, stroke: GLASS_D, 'stroke-width': 0.8,
     }, g));
-  }
-  for (const [si, [t0, t1]] of [[0, [0.18, 0.32]], [1, [0.44, 0.58]]].entries()) {
-    const litR = N && rnd(bi * 131 + fi * 17 + 91 + si * 5) > 0.6;
-    wins.push(el('polygon', {
-      points: P([PR(t0, ht - 3), PR(t1, ht - 3), PR(t1, hb + 3), PR(t0, hb + 3)]),
-      fill: litR ? '#EDC372' : (N ? '#1D2740' : shade(GLASS, 1, 0.72)),
-    }, g));
+    let sideD = '';
+    for (const [si, [t0, t1]] of [[0, [0.18, 0.32]], [1, [0.44, 0.58]]].entries()) {
+      const pts = [PR(t0, ht - 3), PR(t1, ht - 3), PR(t1, hb + 3), PR(t0, hb + 3)];
+      const litR = N && rnd(bi * 131 + fi * 17 + 91 + si * 5) > 0.6;
+      if (litR) wins.push(el('polygon', { points: P(pts), fill: '#EDC372' }, g));
+      else sideD += PD(pts);
+    }
+    if (sideD) wins.push(el('path', { d: sideD, fill: N ? '#1D2740' : shade(GLASS, 1, 0.72) }, g));
   }
 
-  const lp = PF(0.69, hb + FLOOR_HZ / 2 - 4);
-  const label = el('text', {
-    class: 'floorlabel' + (N ? ' night' : ''), x: lp.x, y: lp.y,
-    'text-anchor': 'middle', transform: `rotate(${ctx.ang.toFixed(1)} ${lp.x} ${lp.y})`,
-  }, g);
-  label.textContent = f.name.length > 11 ? f.name.slice(0, 10) + '…' : f.name;
-  el('title', {}, label).textContent = f.path;
+  let label = null;
+  if (!LOD) {
+    const lp = PF(0.69, hb + FLOOR_HZ / 2 - 4);
+    label = el('text', {
+      class: 'floorlabel' + (N ? ' night' : ''), x: lp.x, y: lp.y,
+      'text-anchor': 'middle', transform: `rotate(${ctx.ang.toFixed(1)} ${lp.x} ${lp.y})`,
+    }, g);
+    label.textContent = f.name.length > 11 ? f.name.slice(0, 10) + '…' : f.name;
+    el('title', {}, label).textContent = f.path;
+  }
 
-  const glow = el('polygon', {
+  const glow = LOD ? null : el('polygon', {
     class: 'floorglow',
     points: P([PF(0.02, ht - 1), PF(0.98, ht - 1), PF(0.98, hb + 1), PF(0.02, hb + 1)]),
     fill: '#FFD98A', visibility: 'hidden',
@@ -1653,6 +1745,8 @@ function despawn(a) {
   a.g.style.opacity = '0';
   setTimeout(() => a.g.remove(), 350);
   agents.delete(a.id);
+  if (followId === a.id) cancelFollow();
+  updateRoster();
 }
 
 function arrive(a) {
@@ -1673,20 +1767,27 @@ function arrive(a) {
     a.aloft = true;
     a.wayDown = st.wayDown.slice();
     a.face(1);
-    st.glow.setAttribute('visibility', 'visible');
+    if (st.glow) st.glow.setAttribute('visibility', 'visible');
     st.wins.forEach(wn => wn.setAttribute('fill', '#FFD98A'));   // the floor lights up
-    st.label.classList.add('active');
+    if (st.label) st.label.classList.add('active');
     clearTimeout(st.glowTimer);
     st.glowTimer = setTimeout(() => {
-      st.glow.setAttribute('visibility', 'hidden');
-      st.label.classList.remove('active');
+      if (st.glow) st.glow.setAttribute('visibility', 'hidden');
+      if (st.label) st.label.classList.remove('active');
     }, DWELL + 300);
   }
 }
 
-/* ---------- animation loop ---------- */
-let lastTs = performance.now();
+/* ---------- animation loop ----------
+   rAF drives it when the tab is visible; a low-rate timeout keeps the
+   simulation alive in hidden tabs (background windows, combined views). */
+let lastTs = performance.now(), tickRaf = 0, tickTimer = 0;
+function scheduleTick() {
+  tickRaf = requestAnimationFrame(tick);
+  tickTimer = setTimeout(() => { cancelAnimationFrame(tickRaf); tick(performance.now()); }, 250);
+}
 function tick(ts) {
+  clearTimeout(tickTimer);
   const dt = Math.min(0.05, (ts - lastTs) / 1000);
   lastTs = ts;
   for (const a of [...agents.values()]) {
@@ -1744,105 +1845,234 @@ function tick(ts) {
       else if (a.isKid && performance.now() - a.lastActive > KID_LINGER) startReturn(a);
     }
   }
-  updateCamera();
-  requestAnimationFrame(tick);
+  followTick();
+  scheduleTick();
 }
-requestAnimationFrame(tick);
+scheduleTick();
 
-/* ---------- the camera: zoom deep into the city, ride agents, walk the streets ---------- */
-let followId = null, followZ = 3.4;
-const cam = { x: 0, y: 0, z: 1, active: false, freeZoom: false };
+/* ---------- viewport: pan + zoom on one group (classic canvas model) ---------- */
+const MIN_SCALE = 0.06, MAX_SCALE = 5, FOCUS_SCALE = 1.6;
+const vp = { x: 0, y: 0, scale: 1 };
+let cW = 0, cH = 0;
+let followId = null, followScaleTarget = FOCUS_SCALE;
+let panTo = null;          // gentle auto-pan target (world coords)
 const followHudEl = () => document.getElementById('followHud');
-function camOn() {
-  if (cam.active) return;
-  const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  cam.x = mapwrap.scrollLeft + vw / 2;
-  cam.y = mapwrap.scrollTop + vh * 0.62;
-  cam.z = 1;
-  cam.active = true;
-  mapwrap.classList.add('following');
-  mapwrap.scrollTo(0, 0);
-}
-function followAgent(id) {
-  camOn();
-  followId = id;
-  const hud = followHudEl();
-  hud.textContent = `⌖ riding with ${id} — click ground to hop off here, Esc to fly back out`;
-  hud.style.display = 'block';
-}
-function dismount() {   // hop off but STAY down in the city
-  followId = null;
-  followHudEl().style.display = 'none';
-  cam.freeZoom = cam.z > 1.05;
-}
-function exitToOverview() {
-  followId = null;
-  cam.freeZoom = false;
-  followHudEl().style.display = 'none';
-}
-function updateCamera() {
-  if (!cam.active) return;
-  const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  if (followId) {
-    const a = agents.get(followId);
-    if (!a) dismount();
-    else {
-      cam.x += (a.x - cam.x) * 0.10;
-      cam.y += ((a.y - 30) - cam.y) * 0.10;
-      cam.z += (followZ - cam.z) * 0.07;
-    }
-  } else if (!cam.freeZoom) {
-    cam.z += (1 - cam.z) * 0.14;
-    if (cam.z < 1.02) {
-      cam.active = false;
-      if (svg) svg.style.transform = '';
-      mapwrap.classList.remove('following');
-      mapwrap.scrollTo({ left: cam.x - vw / 2, top: cam.y - vh * 0.62 });
-      return;
-    }
-  }
-  if (svg) {
-    svg.style.transformOrigin = '0 0';
-    svg.style.transform = `translate(${(vw / 2 - cam.x * cam.z).toFixed(1)}px, ${(vh * 0.62 - cam.y * cam.z).toFixed(1)}px) scale(${cam.z.toFixed(3)})`;
-  }
-}
-/* pinch / ctrl+scroll zooms toward the cursor — dive right down to street level */
-function zoomAt(sx, sy, f) {
-  camOn();
-  const vw = mapwrap.clientWidth, vh = mapwrap.clientHeight;
-  if (followId) { followZ = Math.min(6.5, Math.max(1.6, followZ * f)); return; }
-  const wx = (sx - vw / 2) / cam.z + cam.x;
-  const wy = (sy - vh * 0.62) / cam.z + cam.y;
-  cam.z = Math.min(6.5, Math.max(1, cam.z * f));
-  cam.x = wx - (sx - vw / 2) / cam.z;
-  cam.y = wy - (sy - vh * 0.62) / cam.z;
-  cam.freeZoom = cam.z > 1.03;
-}
-window.addEventListener('keydown', (e) => { if (e.key === 'Escape') exitToOverview(); });
-mapwrap.addEventListener('dblclick', exitToOverview);
 
+function initSvg() {
+  cW = mapwrap.clientWidth; cH = mapwrap.clientHeight;
+  svgRoot = el('svg', { width: cW, height: cH });
+  viewportG = el('g', {}, svgRoot);
+  contentG = el('g', {}, viewportG);
+  agentLayer = el('g', {}, viewportG);   // agents persist across scene rebuilds
+  mapwrap.appendChild(svgRoot);
+  applyViewport();
+  window.addEventListener('resize', () => {
+    cW = mapwrap.clientWidth; cH = mapwrap.clientHeight;
+    svgRoot.setAttribute('width', cW); svgRoot.setAttribute('height', cH);
+    applyViewport();
+  });
+}
+
+function applyViewport() {
+  viewportG.setAttribute('transform', `translate(${vp.x} ${vp.y}) scale(${vp.scale})`);
+  document.getElementById('zoomval').textContent = Math.round(vp.scale * 100) + '%';
+  svgRoot.classList.toggle('lowzoom', vp.scale < 0.55);
+}
+
+/* keep the world point under (px,py) fixed while scaling */
+function zoomAt(factor, px, py) {
+  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, vp.scale * factor));
+  const k = next / vp.scale;
+  vp.x = px - k * (px - vp.x);
+  vp.y = py - k * (py - vp.y);
+  vp.scale = next;
+  applyViewport();
+}
+
+/* exponential wheel→zoom factor; ctrl/cmd/alt = coarse jumps */
+function wheelZoomFactor(e) {
+  let dx = e.deltaX, dy = e.deltaY;
+  if (e.deltaMode === 1) { dx *= 16; dy *= 16; }
+  else if (e.deltaMode === 2) { dx *= cH; dy *= cH; }
+  const zoomMod = e.ctrlKey || e.metaKey || e.altKey;
+  let delta = Math.abs(dy) >= Math.abs(dx) ? dy : dx;
+  const intensity = zoomMod ? 0.0125 : 0.0015;
+  if (zoomMod) delta = Math.sign(delta) * Math.min(10, Math.abs(delta));
+  return Math.exp(-delta * intensity);
+}
+
+function fitView() {
+  if (!contentBounds) return;
+  const b = contentBounds, pad = 60;
+  const w = (b.maxX - b.minX) || 1, h = (b.maxY - b.minY) || 1;
+  vp.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, Math.min((cW - pad * 2) / w, (cH - pad * 2) / h)));
+  vp.x = cW / 2 - ((b.minX + b.maxX) / 2) * vp.scale;
+  vp.y = cH / 2 - ((b.minY + b.maxY) / 2) * vp.scale;
+  applyViewport();
+}
+
+/* ---------- follow a selected agent until the user takes control ---------- */
+function followAgent(id) {
+  if (!agents.has(id)) return;
+  followId = id;
+  followScaleTarget = Math.max(vp.scale, FOCUS_SCALE);
+  panTo = null;
+  const hud = followHudEl();
+  hud.textContent = `⌖ following ${id} — drag, scroll or Esc to take back control`;
+  hud.style.display = 'block';
+  updateRoster();
+}
+function cancelFollow() {
+  panTo = null;
+  if (followId !== null) {
+    followId = null;
+    followHudEl().style.display = 'none';
+    updateRoster();
+  }
+}
+function followTick() {
+  if (followId != null) {
+    const a = agents.get(followId);
+    if (!a) { cancelFollow(); return; }
+    vp.scale += (followScaleTarget - vp.scale) * 0.12;
+    const tx = cW / 2 - a.x * vp.scale, ty = cH / 2 - (a.y - 30) * vp.scale;
+    vp.x += (tx - vp.x) * 0.18;
+    vp.y += (ty - vp.y) * 0.18;
+    applyViewport();
+  } else if (panTo) {
+    const tx = cW / 2 - panTo.x * vp.scale, ty = cH / 2 - panTo.y * vp.scale;
+    vp.x += (tx - vp.x) * 0.08;
+    vp.y += (ty - vp.y) * 0.08;
+    if (Math.abs(tx - vp.x) < 1 && Math.abs(ty - vp.y) < 1) panTo = null;
+    applyViewport();
+  }
+}
+window.addEventListener('keydown', (e) => { if (e.key === 'Escape') cancelFollow(); });
+
+/* nudge the view towards the main agent's destination when it leaves the screen */
 let lastUserPan = 0;
 function ensureVisible(x, y) {
-  if (cam.active) return;                               // the follow-cam owns the view
+  if (followId != null) return;                         // the follow-cam owns the view
   if (performance.now() - lastUserPan < 8000) return;   // the user is driving the camera
+  const sx = x * vp.scale + vp.x, sy = y * vp.scale + vp.y;
   const pad = 80;
-  const { scrollLeft, scrollTop, clientWidth, clientHeight } = mapwrap;
-  let sx = scrollLeft, sy = scrollTop;
-  if (x < scrollLeft + pad || x > scrollLeft + clientWidth - pad) sx = x - clientWidth / 2;
-  if (y < scrollTop + pad || y > scrollTop + clientHeight - pad) sy = y - clientHeight / 2;
-  if (sx !== scrollLeft || sy !== scrollTop) mapwrap.scrollTo({ left: sx, top: sy, behavior: 'smooth' });
+  if (sx < pad || sx > cW - pad || sy < pad || sy > cH - pad) panTo = { x, y };
 }
 
+/* ---------- agent roster (top-right): live status, click a row to follow ---------- */
+function agentRole(a) {
+  if (a.id === 'fs-watcher') return 'filesystem';
+  if (a.role === 'main' || a.id === mainId) return 'main agent';
+  return a.role || 'sub-agent';
+}
+function agentTitle(a) {
+  if (a.id === 'fs-watcher') return 'filesystem';
+  if (a.label) return trunc(a.label, 34);
+  return agentRole(a);
+}
+function agentStatus(a) {
+  const fresh = a.transient && performance.now() - a.transientTs < 6000;
+  if (a.state === 'moving') {
+    const f = (a.job && a.job.file) || a.lastFile;
+    return { cls: 'moving', txt: f ? '→ ' + f.split('/').pop() : 'moving' };
+  }
+  if (a.state === 'working') {
+    const j = a.job;
+    const txt = j ? j.verbText + ' ' + j.file.split('/').pop()
+      : a.lastFile ? 'working on ' + a.lastFile.split('/').pop() : 'working';
+    return { cls: 'working', txt };
+  }
+  if (fresh) return { cls: 'working', txt: a.transient };
+  return { cls: 'idle', txt: 'idle' };
+}
+function fmtTokens(n) {
+  if (!n) return '';
+  return n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
+}
+function agentMiniSprite(a) {
+  const def = CHARACTERS[charKey];
+  const patch = a.id === 'fs-watcher' ? def.gray : def.variants[a.variantIdx % def.variants.length];
+  const s = el('svg', { width: 24, height: 30, viewBox: '-27 -88 54 92' });
+  const stand = def.hat ? decorate(def.grids.stand, def.hat) : def.grids.stand;
+  buildFrame(el('g', {}, s), stand, { ...def.colors, ...patch });
+  return s;
+}
+const rosterRows = new Map();
+function rosterRank(a) { return a.id === 'fs-watcher' ? 2 : a.id === mainId ? 0 : 1; }
+function buildRosterRow(a) {
+  const row = document.createElement('div');
+  row.className = 'rrow';
+  const av = document.createElement('div'); av.className = 'rav'; av.appendChild(agentMiniSprite(a));
+  const meta = document.createElement('div'); meta.className = 'rmeta';
+  const name = document.createElement('div'); name.className = 'rname';
+  const nameTxt = document.createElement('span'); nameTxt.className = 'rlabel';
+  const rid = document.createElement('span'); rid.className = 'rid';
+  name.appendChild(nameTxt); name.appendChild(rid);
+  const status = document.createElement('div'); status.className = 'rstatus';
+  const dot = document.createElement('span'); dot.className = 'rdot';
+  const stxt = document.createElement('span');
+  status.appendChild(dot); status.appendChild(stxt);
+  meta.appendChild(name); meta.appendChild(status);
+  const tok = document.createElement('span'); tok.className = 'rtok';
+  row.appendChild(av); row.appendChild(meta); row.appendChild(tok);
+  row.onclick = () => followAgent(a.id);
+  return { el: row, dot, stxt, nameTxt, rid, tok };
+}
+function updateRoster() {
+  const list = document.getElementById('rlist');
+  const empty = list.querySelector('.empty');
+  if (empty) empty.style.display = agents.size ? 'none' : '';
+  for (const [id, row] of rosterRows) {
+    if (!agents.has(id)) { row.el.remove(); rosterRows.delete(id); }
+  }
+  const live = [...agents.values()].sort((a, b) => rosterRank(a) - rosterRank(b));
+  for (const a of live) {
+    let row = rosterRows.get(a.id);
+    if (!row) { row = buildRosterRow(a); rosterRows.set(a.id, row); }
+    list.appendChild(row.el);   // keeps rows in ranked order
+    const st = agentStatus(a);
+    row.dot.className = 'rdot ' + st.cls;
+    row.stxt.textContent = st.txt;
+    row.nameTxt.textContent = agentTitle(a);
+    row.nameTxt.title = a.label || '';
+    row.rid.textContent = a.id === 'fs-watcher' ? '' : a.id;
+    const tk = a.tokens;
+    row.tok.textContent = tk ? fmtTokens(tk.in + tk.out) : '';
+    row.el.classList.toggle('followed', followId === a.id);
+  }
+}
+setInterval(updateRoster, 250);
+
 /* ---------- event stream ---------- */
+function applyMeta(a, ev) {
+  if (ev.label) a.label = ev.label;
+  if (ev.role) a.role = ev.role;
+  if (ev.tokens) a.tokens = ev.tokens;
+}
+
 async function handleActivity(ev) {
   const [verbText, verbClass] = VERBS[ev.tool] || ['touching', 'edit'];
   if (ev.external) return;
+
+  // status-only activity (Bash, Grep, Task …): narrate in place, no travel
+  if (!ev.file) {
+    const a = getAgent(ev.agent);
+    a.lastActive = performance.now();
+    applyMeta(a, ev);
+    const txt = ev.detail ? trunc(ev.detail, 38) : '…';
+    a.transient = verbText + ' ' + txt;
+    a.transientTs = performance.now();
+    a.say(verbText, verbClass, txt);
+    updateRoster();
+    return;
+  }
 
   if (!stations.has(ev.file)) await refreshMap();
   if (!stations.has(ev.file)) return;
 
   const a = getAgent(ev.agent);
   a.lastActive = performance.now();
+  applyMeta(a, ev);
   const last = a.queue[a.queue.length - 1];
   if (last && last.file === ev.file) { last.verbText = verbText; last.verbClass = verbClass; return; }
   a.queue.push({ file: ev.file, verbText, verbClass });
@@ -1857,7 +2087,12 @@ function connect() {
     const ev = JSON.parse(m.data);
     if (ev.type === 'hello') { document.getElementById('watchdir').textContent = ev.watchDir; return; }
     if (ev.type === 'rewatch') { location.reload(); return; }
-    if (ev.type !== 'activity' || !ev.file) return;
+    if (ev.type === 'stats') {   // live token/label refresh for a known agent
+      const a = agents.get(ev.agent);
+      if (a) { applyMeta(a, ev); updateRoster(); }
+      return;
+    }
+    if (ev.type !== 'activity') return;
     handleActivity(ev);
   };
 }
@@ -1875,6 +2110,8 @@ function applyCharacter(key) {
   pickBtn.replaceChildren(miniSprite(CHARACTERS[key]));
   document.querySelectorAll('.pickOpt').forEach(b => b.classList.toggle('selected', b.dataset.key === key));
   for (const a of agents.values()) rebuildSprite(a);
+  for (const [id, row] of rosterRows) { row.el.remove(); rosterRows.delete(id); }
+  updateRoster();   // rebuild rows so roster avatars match the new character
 }
 const pickBtn = document.getElementById('pickBtn');
 const pickMenu = document.getElementById('pickMenu');
@@ -1893,8 +2130,8 @@ for (const [key, def] of Object.entries(CHARACTERS)) {
 pickBtn.replaceChildren(miniSprite(CHARACTERS[charKey]));
 pickBtn.onclick = () => pickMenu.classList.toggle('open');
 
-/* ---------- drag the city: horizontal = orbit the camera, vertical = pan ---------- */
-let dragPan = null, rotDirty = false, rotBusy = false;
+/* ---------- drag the city: horizontal = orbit, vertical = pan; shift / middle button = free pan ---------- */
+let dragPan = null, dragMoved = false, rotDirty = false, rotBusy = false, lastBuildMs = 40;
 function focusPoint() {
   const m = mainId && agents.get(mainId);
   return m ? { x: m.x, y: m.y } : { x: SPAWN.x, y: SPAWN.y };
@@ -1902,56 +2139,73 @@ function focusPoint() {
 function applyRotation() {
   if (rotBusy) { rotDirty = true; return; }
   rotBusy = true;
+  // keep the focus point pinned to the same screen pixel across the re-projection
   const before = focusPoint();
-  const offX = before.x - mapwrap.scrollLeft, offY = before.y - mapwrap.scrollTop;
+  const sx = before.x * vp.scale + vp.x, sy = before.y * vp.scale + vp.y;
   rebuildScene();
   const after = focusPoint();
-  mapwrap.scrollLeft = after.x - offX;
-  mapwrap.scrollTop = after.y - offY;
+  vp.x = sx - after.x * vp.scale;
+  vp.y = sy - after.y * vp.scale;
+  applyViewport();
+  // adaptive throttle: heavier cities rebuild less often while the drag continues
   setTimeout(() => {
     rotBusy = false;
     if (rotDirty) { rotDirty = false; applyRotation(); }
-  }, 70);
+  }, Math.max(40, Math.min(400, lastBuildMs * 1.4)));
 }
 mapwrap.addEventListener('pointerdown', (e) => {
-  if (e.button !== 0) return;
-  if (followId) { dismount(); return; }   // hop off the agent, stay down in the city
+  if (e.button !== 0 && e.button !== 1) return;
   e.preventDefault();
-  dragPan = { x: e.clientX, y: e.clientY, st: mapwrap.scrollTop, az: AZ, cx: cam.x, cy: cam.y };
+  dragPan = {
+    x: e.clientX, y: e.clientY, az: AZ, vx: vp.x, vy: vp.y,
+    pan: e.button === 1 || e.shiftKey,   // middle button / shift = free pan
+  };
+  dragMoved = false;
+  try { mapwrap.setPointerCapture(e.pointerId); } catch {}
   mapwrap.classList.add('dragging');
 });
-window.addEventListener('pointermove', (e) => {
+mapwrap.addEventListener('pointermove', (e) => {
   if (!dragPan) return;
   e.preventDefault();
+  const dx = e.clientX - dragPan.x, dy = e.clientY - dragPan.y;
+  if (!dragMoved && Math.abs(dx) + Math.abs(dy) < 3) return;   // click, not a drag
+  if (!dragMoved) { dragMoved = true; cancelFollow(); }        // a real drag = taking control
   lastUserPan = performance.now();
-  if (cam.active) {
-    // down in the city: drag walks you through the streets
-    cam.x = dragPan.cx - (e.clientX - dragPan.x) / cam.z;
-    cam.y = dragPan.cy - (e.clientY - dragPan.y) / cam.z;
+  if (dragPan.pan) {
+    vp.x = dragPan.vx + dx; vp.y = dragPan.vy + dy;
+    applyViewport();
     return;
   }
-  mapwrap.scrollTop = dragPan.st - (e.clientY - dragPan.y);
-  const nextAz = dragPan.az - (e.clientX - dragPan.x) * 0.0038;
-  if (Math.abs(nextAz - AZ) > 0.02) { AZ = nextAz; applyRotation(); }
+  vp.y = dragPan.vy + dy;                       // vertical: pan
+  const nextAz = dragPan.az - dx * 0.0038;      // horizontal: orbit
+  if (Math.abs(nextAz - AZ) > 0.02) {
+    AZ = nextAz;
+    LOD = lastBuildMs > 50;   // big city: drop to low detail while the orbit continues
+    applyRotation();
+  } else applyViewport();
 });
-function endDrag() {
+function endDrag(e) {
   if (!dragPan) return;
   dragPan = null;
   mapwrap.classList.remove('dragging');
+  try { mapwrap.releasePointerCapture(e.pointerId); } catch {}
+  if (!dragMoved) cancelFollow();               // a plain click on the map = take control
+  if (LOD) { LOD = false; applyRotation(); }    // restore full detail after the orbit
   localStorage.setItem('agentview-az', String(AZ));
 }
-window.addEventListener('pointerup', endDrag);
-window.addEventListener('pointercancel', endDrag);
+mapwrap.addEventListener('pointerup', endDrag);
+mapwrap.addEventListener('pointercancel', endDrag);
 mapwrap.addEventListener('wheel', (e) => {
+  e.preventDefault();
   lastUserPan = performance.now();
-  if (e.ctrlKey || e.metaKey) {
-    e.preventDefault();
-    zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0028));   // pinch / ctrl+scroll = dive in & out
-  } else if (cam.active) {
-    e.preventDefault();
-    if (!followId) { cam.x += e.deltaX / cam.z; cam.y += e.deltaY / cam.z; }
-  }
+  cancelFollow();
+  const rect = mapwrap.getBoundingClientRect();
+  zoomAt(wheelZoomFactor(e), e.clientX - rect.left, e.clientY - rect.top);
 }, { passive: false });
+
+document.getElementById('zin').onclick = () => { cancelFollow(); zoomAt(1.25, cW / 2, cH / 2); };
+document.getElementById('zout').onclick = () => { cancelFollow(); zoomAt(1 / 1.25, cW / 2, cH / 2); };
+document.getElementById('zfit').onclick = () => { cancelFollow(); fitView(); };
 
 /* ---------- dark mode ---------- */
 const themeBtn = document.getElementById('themeBtn');
@@ -1970,11 +2224,9 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (m) => {
   if (!localStorage.getItem('agentview-theme')) setDark(m.matches);
 });
 
+initSvg();
 refreshMap().then(() => {
-  mapwrap.scrollTo({
-    left: SPAWN.x - mapwrap.clientWidth / 3,
-    top: SPAWN.y - mapwrap.clientHeight / 2,
-  });
+  fitView();
   setTimeout(() => { INTRO = false; }, 3000);   // after the construction show, only new buildings rise
   connect();
 });

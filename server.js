@@ -13,7 +13,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = process.env.PORT || process.env.AGENTVIEW_PORT || 4517;
+const PORT = process.argv[3] || process.env.PORT || process.env.AGENTVIEW_PORT || 4517;
 let WATCH_DIR = path.resolve(process.argv[2] || process.cwd());
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -77,7 +77,7 @@ function startWatching(dir) {
 startWatching(WATCH_DIR);
 
 /* ---------------- http ---------------- */
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
@@ -151,7 +151,7 @@ const server = http.createServer((req, res) => {
   }
 
   // static files
-  let file = url.pathname === '/' ? '/index.html' : url.pathname;
+  let file = url.pathname === '/' ? (process.env.VERCEL ? '/coming-soon.html' : '/index.html') : url.pathname;
   const abs = path.join(PUBLIC_DIR, path.normalize(file));
   if (!abs.startsWith(PUBLIC_DIR)) { res.writeHead(403); res.end(); return; }
   fs.readFile(abs, (err, data) => {
