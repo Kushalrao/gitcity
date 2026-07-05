@@ -1031,12 +1031,6 @@ const GOSPEL_GRADS = [
 /* mid hue of a gradient — the base color for trim/mullion/banner derivations */
 const gospelMid = gi => GOSPEL_GRADS[gi][Math.floor(GOSPEL_GRADS[gi].length / 2)];
 
-/* metro: sleek NYC-tech glass towers — teal/steel/cyan with jewel-tone accents */
-let MTRO = false;   // set per-build; true while rendering the metro theme
-const WALLS_M = ['#2E7A8C', '#3E8FA8', '#4A6E9E', '#5E7FB0', '#7A9CC0', '#8C6E9E', '#B0708C', '#3E9E9E', '#5A8CA8', '#6E8CB8'];
-const GLASS_M = '#3E7A8C', GLASS_MD = '#2A5A6E';   // dim teal glass
-const WINLIT = '#F5D98A';   // warm office-window glow
-
 /* draw an isometric box: roof + the two camera-facing walls (azimuth-aware) */
 function isoBox(g, x0, y0, wx, wy, hb, ht, cTop, cLeft, cRight, proj) {
   const { A, B, C, D } = cornersOf(x0, y0, wx, wy, proj);
@@ -1096,7 +1090,6 @@ function buildMap(root) {
   mapwrap.appendChild(svg);
 
   GSPL = SCENE === 'gospel';
-  MTRO = SCENE === 'metro';
 
   // SVG-native hover glow (CSS drop-shadow on SVG groups is a no-op in Safari)
   const defs = el('defs', {}, svg);
@@ -1220,25 +1213,23 @@ function buildMap(root) {
 
 function drawGround(w, h, spanX, spanY, cols, rows, N) {
   // grass world, paved plaza, street grid
-  if (GSPL || MTRO) {
+  if (GSPL) {
     const sg = el('linearGradient', { id: 'gsky', x1: 0, y1: 0, x2: 0.4, y2: 1 }, svg);
-    const stops = GSPL
-      ? (N ? [['0%', '#1A1038'], ['45%', '#4A1E66'], ['100%', '#8F2E7A']]
-           : [['0%', '#8FD0F0'], ['40%', '#C8A8E8'], ['75%', '#F5A8D4'], ['100%', '#F5C8A8']])
-      : (N ? [['0%', '#081826'], ['55%', '#0E3040'], ['100%', '#1E5560']]
-           : [['0%', '#123A5A'], ['45%', '#1E6E8C'], ['80%', '#3EA0A8'], ['100%', '#8FD0C8']]);   // metro dusk
+    const stops = N
+      ? [['0%', '#1A1038'], ['45%', '#4A1E66'], ['100%', '#8F2E7A']]
+      : [['0%', '#8FD0F0'], ['40%', '#C8A8E8'], ['75%', '#F5A8D4'], ['100%', '#F5C8A8']];
     for (const [o, c] of stops) el('stop', { offset: o, 'stop-color': c }, sg);
     el('rect', { x: 0, y: 0, width: w, height: h, fill: 'url(#gsky)' }, svg);
   } else {
     el('rect', { x: 0, y: 0, width: w, height: h, fill: N ? '#08090C' : '#FAFBEE' }, svg);
   }
   const gx0 = -S_ISO, gx1 = spanX, gy0 = -S_ISO, gy1 = spanY;
-  const plaza = GSPL ? (N ? '#5A3A7A' : '#E8B0E0') : MTRO ? (N ? '#123240' : '#2E5A66') : (N ? '#93A3C7' : '#C6D3E4');
+  const plaza = GSPL ? (N ? '#5A3A7A' : '#E8B0E0') : (N ? '#93A3C7' : '#C6D3E4');
   el('polygon', { points: P([isoS(gx0 - 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy1 + 0.6), isoS(gx0 - 0.6, gy1 + 0.6)]), fill: plaza }, svg);
 
   const nf = NEARF || (() => true);
-  const asph = GSPL ? (N ? '#C85FA8' : '#F58FC2') : MTRO ? (N ? '#0C2430' : '#1E4A56') : (N ? '#6F82A8' : '#8CA3C4');
-  const dash = GSPL ? '#FFF0FA' : MTRO ? '#5FC0C0' : '#F5F8FC';
+  const asph = GSPL ? (N ? '#C85FA8' : '#F58FC2') : (N ? '#6F82A8' : '#8CA3C4');   // gospel: pink flowing streets
+  const dash = GSPL ? '#FFF0FA' : '#F5F8FC';
   for (let gy = 0; gy <= rows; gy++) {
     const y0 = gy * PITCH_Y - S_ISO;
     el('polygon', { points: P([isoS(gx0, y0), isoS(gx1, y0), isoS(gx1, y0 + S_ISO), isoS(gx0, y0 + S_ISO)]), fill: asph }, svg);
@@ -1657,19 +1648,6 @@ function drawWeather(w, h, spanX, spanY, N) {
     el('circle', { cx: ox, cy: oy, r: 22, fill: N ? '#F5B0E0' : '#FFF0B8' }, svg);
     return;
   }
-  if (MTRO) {
-    // hazy sun/moon with a soft atmospheric bloom (top-left, like the skyline refs)
-    const skyH = Math.max(0, OY - 40);
-    const ox = w * 0.16, oy = skyH * 0.2;
-    for (let r = 150; r > 40; r -= 22) {
-      el('circle', { cx: ox, cy: oy, r, fill: N ? '#2A6E7A' : '#BEE8E0', opacity: 0.05 }, svg);
-    }
-    el('circle', { cx: ox, cy: oy, r: 44, fill: N ? '#BEE8E8' : '#F2F8EE', opacity: 0.85 }, svg);
-    for (let i = 0; i < 40; i++) {
-      el('circle', { cx: rnd(i * 3) * w, cy: rnd(i * 7 + 1) * skyH * 0.7, r: rnd(i + 5) * 1.1 + 0.3, fill: '#CFF0F0', opacity: (0.15 + rnd(i) * 0.4).toFixed(2) }, svg);
-    }
-    return;
-  }
   if (N) return;   // reference night: pure black void, no moon or stars
   // drifting clouds with shadows on the city below
   for (let i = 0; i < 4; i++) {
@@ -1757,14 +1735,14 @@ function drawBuildingIso(b, i, gx, gy, N, seq, ghost) {
     return;
   }
 
-  // night uses the reference palette; gospel uses vivid iridescent hues; metro is cool glass
+  // night uses the reference palette; gospel uses vivid iridescent hues
   const gi = i % GOSPEL_GRADS.length;
-  let wall = GSPL ? gospelMid(gi) : MTRO ? WALLS_M[i % WALLS_M.length] : (N ? WALLS_N : WALLS)[i % WALLS.length];
-  if (style === 'eiffel') wall = GSPL ? '#C8A8F0' : MTRO ? '#4A7E9E' : '#A87C58';   // iron / crystal / steel
-  const faceR = shade(wall, 1, MTRO ? 0.7 : 0.86);   // metro: stronger side-face contrast for depth
-  let roof = N ? shade(wall, 1, 1.06) : shade(wall, 1.12, MTRO ? 0.78 : 0.62);
-  if (!GSPL && !MTRO && !N && (style === 'pagoda' || style === 'dome' || style === 'clock')) roof = ROOFS[Math.floor(rnd(i * 7 + 2) * ROOFS.length)];
-  const trim = shade(wall, 1.05, GSPL ? 1.1 : MTRO ? 0.9 : 0.72);
+  let wall = GSPL ? gospelMid(gi) : (N ? WALLS_N : WALLS)[i % WALLS.length];
+  if (style === 'eiffel') wall = GSPL ? '#C8A8F0' : '#A87C58';   // riveted iron / crystal
+  const faceR = shade(wall, 1, 0.86);   // reference two-tone: side face a notch deeper
+  let roof = N ? shade(wall, 1, 1.06) : shade(wall, 1.12, 0.62);   // ref night roofs match the walls
+  if (!GSPL && !N && (style === 'pagoda' || style === 'dome' || style === 'clock')) roof = ROOFS[Math.floor(rnd(i * 7 + 2) * ROOFS.length)];
+  const trim = shade(wall, 1.05, GSPL ? 1.1 : 0.72);
   // face fills: flat hex in city, iridescent gradients in gospel
   const wallFill = GSPL ? `url(#gg${gi})` : wall;
   const faceRFill = GSPL ? `url(#gg${gi})` : faceR;
@@ -1896,7 +1874,7 @@ function drawBuildingIso(b, i, gx, gy, N, seq, ghost) {
   }
 
   // ground floor: full-glass storefront with mullions + dark entrance
-  el('polygon', { points: P([PFt(0.04, 3), PFt(0.96, 3), PFt(0.96, LOBBY_HZ - 5), PFt(0.04, LOBBY_HZ - 5)]), fill: GSPL ? GLASS_G : MTRO ? WINLIT : (N ? GLASS_N : GLASS) }, g);
+  el('polygon', { points: P([PFt(0.04, 3), PFt(0.96, 3), PFt(0.96, LOBBY_HZ - 5), PFt(0.04, LOBBY_HZ - 5)]), fill: GSPL ? GLASS_G : (N ? GLASS_N : GLASS) }, g);
   for (const tm of [0.27, 0.5, 0.73]) {
     el('polygon', { points: P([PFt(tm, 3), PFt(tm + 0.012, 3), PFt(tm + 0.012, LOBBY_HZ - 5), PFt(tm, LOBBY_HZ - 5)]), fill: shade(wall, 1, 0.92) }, g);
   }
@@ -2020,23 +1998,20 @@ function puffAt(x, y, N) {
 function drawFloorIso(g, bi, fi, f, PFt, PRt, ctx, N) {
   const hb = LOBBY_HZ + fi * FLOOR_HZ, ht = hb + FLOOR_HZ;
   const wins = [];
-  const GL = GSPL ? GLASS_G : MTRO ? GLASS_M : (N ? GLASS_N : GLASS);
-  const GLhi = GSPL ? '#EAFFF8' : MTRO ? '#5FA8B8' : (N ? '#6FC3D6' : '#A9E0EE');
-  // metro: scattered warm office windows lit against the cool glass
-  const litW = wi => MTRO && rnd(bi * 131 + fi * 17 + wi * 7) > 0.62;
+  const GL = GSPL ? GLASS_G : (N ? GLASS_N : GLASS);
+  const GLhi = GSPL ? '#EAFFF8' : (N ? '#6FC3D6' : '#A9E0EE');
   if (ctx.tower) {
     // curtain wall: continuous glass columns floor-to-ceiling, thin mullions between
-    T_STRIPS.forEach(([t0, t1], wi) => {
-      const lit = litW(wi);
+    for (const [t0, t1] of T_STRIPS) {
       wins.push(el('polygon', {
         points: P([PFt(t0, ht), PFt(t1, ht), PFt(t1, hb), PFt(t0, hb)]),
-        fill: lit ? WINLIT : GL,
+        fill: GL,
       }, g));
       el('polygon', {
         points: P([PFt(t0, ht), PFt(t0 + 0.025, ht), PFt(t0 + 0.025, hb), PFt(t0, hb)]),
-        fill: lit ? shade(WINLIT, 1, 1.1) : GLhi,
+        fill: GLhi,
       }, g);
-    });
+    }
     // transom: faint floor line across the glass
     el('polygon', {
       points: P([PFt(0.05, hb + 0.9), PFt(0.96, hb + 0.9), PFt(0.96, hb), PFt(0.05, hb)]),
@@ -2052,14 +2027,13 @@ function drawFloorIso(g, bi, fi, f, PFt, PRt, ctx, N) {
     }
   } else {
     // low-rise: punched windows with pale frames, reference style
-    F_PUNCH.forEach(([t0, t1], wi) => {
-      const lit = litW(wi + 3);
+    for (const [t0, t1] of F_PUNCH) {
       wins.push(el('polygon', {
         points: P([PFt(t0, ht - 3), PFt(t1, ht - 3), PFt(t1, hb + 3), PFt(t0, hb + 3)]),
-        fill: lit ? WINLIT : GL,
-        stroke: MTRO ? '#2A5A6E' : '#F7F7F2', 'stroke-width': 1.5,
+        fill: GL,
+        stroke: '#F7F7F2', 'stroke-width': 1.5,
       }, g));
-    });
+    }
     if (ctx.wAt(hb) > 0.92) {
       for (const [t0, t1] of [[0.16, 0.34], [0.46, 0.64]]) {
         wins.push(el('polygon', {
@@ -2901,14 +2875,11 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (m) => {
 });
 
 /* ---------- scene theme switcher: candy city ⇄ psychedelic ---------- */
-const SCENES = ['city', 'gospel', 'metro'];
-const SCENE_ICON = { city: '🌀', gospel: '🌃', metro: '🏙' };
-const SCENE_LABEL = { city: 'candy city', gospel: 'psychedelic', metro: 'NYC tech' };
+const SCENES = ['city', 'gospel'];
 const sceneBtn = document.getElementById('sceneBtn');
 function paintSceneBtn() {
-  const next = SCENES[(SCENES.indexOf(SCENE) + 1) % SCENES.length];
-  sceneBtn.textContent = SCENE_ICON[SCENE];
-  sceneBtn.title = `${SCENE_LABEL[SCENE]} — switch to ${SCENE_LABEL[next]}`;
+  sceneBtn.textContent = SCENE === 'gospel' ? '🏙' : '🌀';
+  sceneBtn.title = SCENE === 'gospel' ? 'psychedelic — switch to city' : 'city — switch to psychedelic';
   document.documentElement.classList.toggle('gospel', SCENE === 'gospel');
 }
 paintSceneBtn();
