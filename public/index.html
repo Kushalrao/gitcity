@@ -114,12 +114,9 @@
   @keyframes sway { from { transform: rotate(-1.6deg); } to { transform: rotate(2.2deg); } }
   .roam { animation: roam var(--dur, 60s) ease-in-out infinite alternate; animation-delay: var(--delay, 0s); }
   @keyframes roam { from { transform: translate(0, 0); } to { transform: translate(var(--dx, 0px), var(--dy, 0px)); } }
-  /* the city builds itself: towers spring up from their lots */
-  .rise {
-    animation: rise 0.85s cubic-bezier(0.22, 1.5, 0.42, 1) backwards;
-    transform-box: fill-box; transform-origin: 50% 100%;
-  }
-  @keyframes rise { from { transform: scaleY(0.02); } 70% { transform: scaleY(1.06); } to { transform: scaleY(1); } }
+  /* the city builds itself, floor by floor from the ground up */
+  .rise { animation: buildup 1s steps(8, end) backwards; }
+  @keyframes buildup { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
   @keyframes fadein { from { opacity: 0; } }
 
   .agent { transition: opacity 0.3s; }
@@ -1263,8 +1260,9 @@ function drawBuildingIso(b, i, gx, gy, N, seq) {
   const g = el('g', {}, svg);
   if (rising) {
     g.setAttribute('class', 'rise');
-    g.style.animationDelay = `${(0.25 + (seq || 0) * 0.07).toFixed(2)}s`;
-    g.style.animationDuration = `${(0.75 + rnd(i * 13) * 0.45).toFixed(2)}s`;
+    g.style.animationDelay = `${(0.25 + (seq || 0) * 0.08).toFixed(2)}s`;
+    g.style.animationDuration = `${(0.3 + floors * 0.14).toFixed(2)}s`;      // one beat per floor
+    g.style.animationTimingFunction = `steps(${floors + 2}, end)`;           // pop, pop, pop…
   }
   el('title', {}, g).textContent = b.full;
 
