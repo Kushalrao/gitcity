@@ -1076,6 +1076,7 @@ function buildMap(root) {
     isoS(b.gx * PITCH_X + W_ISO / 2, b.gy * PITCH_Y + D_ISO / 2).y);
   // ride bubble: while following, only the rider's neighborhood is fully drawn
   const fa = CULL.on && followId && agents.get(followId);
+  if (fa) CULL.r = desiredCullR();
   CULL.center = fa ? { ...curIsoPt(fa) } : null;
   NEARF = CULL.center ? ((x, y, rr = CULL.r) => Math.hypot(x - CULL.center.x, y - CULL.center.y) < rr) : null;
 
@@ -2290,12 +2291,15 @@ function spriteFramesFor(a) {
   R3.sprites.set(key, frames);
   return frames;
 }
+function desiredCullR() {
+  // the ride bubble must always cover the whole viewport: tight when zoomed deep, wide when pulled back
+  return Math.max(9, Math.min(26, (mapwrap.clientWidth / 2) / (42 * Math.max(1.2, cam.z)) + 6));
+}
 function followAgent(id) {
   camOn();
   followId = id;
   CULL.on = true;
   applyRotation();   // rebuild into the ride bubble (tiny scene = fast re-bakes)
-  document.getElementById('rideVeil').style.display = 'block';
   const hud = followHudEl();
   hud.textContent = `⌖ riding with ${id} — click ground to hop off here, Esc to fly back out`;
   hud.style.display = 'block';
@@ -2533,10 +2537,11 @@ function updateCamera(dt) {
       // re-bake geometry in fine steps (the ride bubble makes each bake a few ms);
       // the small residual renders as a rigid rotation below
       if (!rotBusy && Math.abs(vAZ - AZ) > 0.03) { AZ = vAZ; applyRotation(); }
-      // rolling re-cull: as the rider crosses blocks, redraw the bubble around them
+      // rolling re-cull: as the rider crosses blocks or the zoom changes, redraw the bubble
       else if (!rotBusy && CULL.center) {
         const ci = curIsoPt(a);
-        if (Math.hypot(ci.x - CULL.center.x, ci.y - CULL.center.y) > CULL.r * 0.45) applyRotation();
+        if (Math.hypot(ci.x - CULL.center.x, ci.y - CULL.center.y) > CULL.r * 0.45
+          || Math.abs(desiredCullR() - CULL.r) > 3) applyRotation();
       }
     }
   } else if (!cam.freeZoom) {
