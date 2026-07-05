@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>git city</title>
+<title>GitCity</title>
 <link rel="icon" type="image/svg+xml" href="logo.svg" />
 <script>
   (function () {
@@ -3313,22 +3313,22 @@ function renderRoster() {
   mapwrap.style.overflow = 'hidden';
   mapwrap.style.background = 'transparent';
   const grid = document.createElement('div');
-  // fixed-size cells, edge to edge: however many 64px columns fit the viewport wrap onto
+  // fixed-size cells, edge to edge: however many 128px columns fit the viewport wrap onto
   // as many rows as needed, with justify-content spreading each row flush to both edges
-  grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,64px);gap:12px 0;padding:18px 0;justify-content:space-between;align-content:start;`;
+  grid.style.cssText = `display:grid;grid-template-columns:repeat(auto-fill,128px);gap:24px 0;padding:18px 0;justify-content:space-between;align-content:start;`;
   mapwrap.appendChild(grid);
 
   for (const [key, def] of Object.entries(CHARACTERS)) {
     const cell = document.createElement('div');
-    cell.style.cssText = 'width:64px;height:78px;background:transparent;display:flex;align-items:flex-end;justify-content:center;cursor:pointer;position:relative;transition:transform .12s;overflow:visible;';
-    const s = el('svg', { width: 52, height: 66, viewBox: '-27 -92 54 96' });
+    cell.style.cssText = 'width:128px;height:156px;background:transparent;display:flex;align-items:flex-end;justify-content:center;cursor:pointer;position:relative;transition:transform .12s;overflow:visible;';
+    const s = el('svg', { width: 104, height: 132, viewBox: '-27 -92 54 96' });
     const flip = el('g', {}, s);
     const frames = frameRows(def).map(rows => buildFrame(el('g', {}, flip), rows, def.colors));
     frames.forEach((f, i) => f.setAttribute('visibility', i === 0 ? 'visible' : 'hidden'));
     cell.appendChild(s);
     const nm = document.createElement('div');
     nm.textContent = def.name;
-    nm.style.cssText = 'position:absolute;bottom:-16px;left:50%;transform:translateX(-50%);font:9px ui-monospace,Menlo,monospace;color:#8a8a8a;white-space:nowrap;opacity:0;transition:opacity .12s;';
+    nm.style.cssText = 'position:absolute;bottom:-32px;left:50%;transform:translateX(-50%);font:18px ui-monospace,Menlo,monospace;color:#8a8a8a;white-space:nowrap;opacity:0;transition:opacity .12s;';
     cell.appendChild(nm);
     const cyc = def.grids.runCycle;
     let iv = null, k = 0, cur = 0;
