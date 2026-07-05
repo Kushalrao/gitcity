@@ -1,0 +1,36 @@
+{
+  "name": "gitcity",
+  "version": "0.1.0",
+  "description": "git city — your codebase as a living cartoon city. Folders become buildings, files become floors, and your coding agents run the streets, climb the towers, and light up the floors they work on.",
+  "bin": {
+    "gitcity": "cli.js"
+  },
+  "main": "server.js",
+  "files": [
+    "cli.js",
+    "server.js",
+    "hook.js",
+    "autostart.js",
+    "license.js",
+    "public",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kushalrao/agent-map.git"
+  },
+  "keywords": [
+    "claude-code",
+    "coding-agents",
+    "visualization",
+    "codebase",
+    "city",
+    "devtools"
+  ],
+  "author": "Kushal Rao",
+  "license": "SEE LICENSE IN LICENSE"
+}

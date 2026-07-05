@@ -11,3 +11,6 @@ docs/
 scripts/
 config/
 styles/
+
+# local dev unlock — never shipped
+.gitcity-dev

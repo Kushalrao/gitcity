@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>agentview</title>
+<title>git city</title>
 <script>
   (function () {
     const saved = localStorage.getItem('agentview-theme');
@@ -70,6 +70,26 @@
     background: radial-gradient(ellipse 70% 62% at 50% 84%, transparent 56%, var(--bg) 96%);
   }
   #rideView { position: fixed; inset: 0; z-index: 4; display: none; }
+  #lockScreen {
+    position: fixed; inset: 0; z-index: 60; display: none;
+    align-items: center; justify-content: center; flex-direction: column; gap: 14px;
+    background: rgba(8, 9, 12, 0.94); backdrop-filter: blur(6px);
+    color: #F2EFD9; text-align: center;
+  }
+  #lockScreen h1 { font: 800 34px ui-monospace, Menlo, monospace; letter-spacing: 1px; }
+  #lockScreen h1 span { color: #F2C21F; }
+  #lockScreen p { color: #9aa3b5; max-width: 420px; line-height: 1.6; }
+  #lockScreen input {
+    width: 320px; padding: 10px 14px; border-radius: 10px; border: 1px solid #3a4152;
+    background: #141c2e; color: #F2EFD9; font: 13px ui-monospace, Menlo, monospace; text-align: center;
+  }
+  #lockScreen button {
+    padding: 10px 26px; border-radius: 10px; border: none; cursor: pointer;
+    background: #F2C21F; color: #1a1408; font: 700 13px ui-monospace, Menlo, monospace;
+  }
+  #lockScreen button:hover { background: #FFD34D; }
+  #lockScreen a { color: #7BD9E8; font: 12px ui-monospace, Menlo, monospace; }
+  #lockErr { color: #E05252; font: 12px ui-monospace, Menlo, monospace; min-height: 16px; }
 
   #picker {
     position: fixed; left: 14px; top: 14px; z-index: 20;
@@ -166,6 +186,14 @@
   <canvas id="rideView"></canvas>
   <div id="rideVeil"></div>
   <div id="followHud"></div>
+  <div id="lockScreen">
+    <h1>git <span>city</span></h1>
+    <p>Your codebase as a living city — folders become buildings, files become floors, and your coding agents run the streets. This copy isn't activated yet.</p>
+    <input id="lockKey" placeholder="paste your license key" spellcheck="false" />
+    <button id="lockGo">Activate</button>
+    <div id="lockErr"></div>
+    <a id="buyLink" href="#" target="_blank" rel="noopener">get a license — $13, one time</a>
+  </div>
   <div id="hud"><span id="status"></span><span id="watchdir">connecting…</span></div>
 
 <script>
@@ -2618,7 +2646,13 @@ function connect() {
   es.onerror = () => statusEl.classList.remove('on');
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
-    if (ev.type === 'hello') { document.getElementById('watchdir').textContent = ev.watchDir; return; }
+    if (ev.type === 'hello') {
+      document.getElementById('watchdir').textContent = ev.watchDir;
+      const lock = document.getElementById('lockScreen');
+      lock.style.display = ev.licensed === false ? 'flex' : 'none';
+      if (ev.buyUrl) document.getElementById('buyLink').href = ev.buyUrl;
+      return;
+    }
     if (ev.type === 'rewatch') { location.reload(); return; }
     if (ev.type !== 'activity' || !ev.file) return;
     handleActivity(ev);
@@ -2739,6 +2773,23 @@ themeBtn.onclick = () => {
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (m) => {
   if (!localStorage.getItem('agentview-theme')) setDark(m.matches);
 });
+
+document.getElementById('lockGo').onclick = async () => {
+  const key = document.getElementById('lockKey').value;
+  const err = document.getElementById('lockErr');
+  err.textContent = 'checking…';
+  try {
+    const r = await fetch('/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key }),
+    }).then(x => x.json());
+    if (r.ok) location.reload();
+    else err.textContent = r.error || 'activation failed';
+  } catch {
+    err.textContent = 'could not reach the local server';
+  }
+};
 
 refreshMap().then(() => {
   mapwrap.scrollTo({

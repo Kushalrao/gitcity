@@ -12,6 +12,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const license = require('./license.js');
 
 const PORT = process.env.PORT || process.env.AGENTVIEW_PORT || 4517;
 let WATCH_DIR = path.resolve(process.argv[2] || process.cwd());
@@ -88,7 +89,7 @@ const server = http.createServer((req, res) => {
       'Cache-Control': 'no-cache',
       Connection: 'keep-alive',
     });
-    res.write(`data: ${JSON.stringify({ type: 'hello', watchDir: WATCH_DIR })}\n\n`);
+    res.write(`data: ${JSON.stringify({ type: 'hello', watchDir: WATCH_DIR, licensed: license.isLicensed(), buyUrl: license.BUY_URL })}\n\n`);
     clients.push(res);
     req.on('close', () => { clients = clients.filter((c) => c !== res); });
     return;
@@ -97,6 +98,25 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/tree') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(buildTree(WATCH_DIR)));
+    return;
+  }
+
+  if (url.pathname === '/license') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ licensed: license.isLicensed(), buyUrl: license.BUY_URL }));
+    return;
+  }
+
+  if (url.pathname === '/activate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (d) => { body += d; if (body.length > 1e4) req.destroy(); });
+    req.on('end', async () => {
+      let key = '';
+      try { key = JSON.parse(body).key; } catch {}
+      const r = await license.activate(key);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(r));
+    });
     return;
   }
 
