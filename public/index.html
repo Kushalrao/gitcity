@@ -1117,7 +1117,7 @@ function buildMap(root) {
 
 function drawGround(w, h, spanX, spanY, cols, rows, N) {
   // grass world, paved plaza, street grid
-  el('rect', { x: 0, y: 0, width: w, height: h, fill: N ? '#16281E' : '#FAFBEE' }, svg);
+  el('rect', { x: 0, y: 0, width: w, height: h, fill: N ? '#08090C' : '#FAFBEE' }, svg);
   const gx0 = -S_ISO, gx1 = spanX, gy0 = -S_ISO, gy1 = spanY;
   el('polygon', { points: P([isoS(gx0 - 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy0 - 0.6), isoS(gx1 + 0.6, gy1 + 0.6), isoS(gx0 - 0.6, gy1 + 0.6)]), fill: N ? '#2C3140' : '#C6D3E4' }, svg);
 
