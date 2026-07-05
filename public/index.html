@@ -122,6 +122,8 @@
   @keyframes sway { from { transform: rotate(-1.6deg); } to { transform: rotate(2.2deg); } }
   .roam { animation: roam var(--dur, 60s) ease-in-out infinite alternate; animation-delay: var(--delay, 0s); }
   @keyframes roam { from { transform: translate(0, 0); } to { transform: translate(var(--dx, 0px), var(--dy, 0px)); } }
+  .spin { animation: spinwheel var(--wdur, 1s) linear infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes spinwheel { to { transform: rotate(360deg); } }
   /* construction dust as each floor lands */
   .puff { animation: puff 0.55s ease-out forwards; transform-box: fill-box; transform-origin: center; pointer-events: none; }
   @keyframes puff { from { opacity: 0.6; transform: scale(0.35); } to { opacity: 0; transform: scale(2); } }
@@ -1149,13 +1151,28 @@ function drawCarIso(ix, iy, axis, col, N, seed) {
   }, svg);
   const c = isoS(ix + wx / 2, iy + wy / 2);
   el('ellipse', { cx: c.x, cy: c.y + 3, rx: (wx + wy) * 14, ry: (wx + wy) * 6, fill: '#2B3345', opacity: 0.18 }, g);
-  isoBox(g, ix, iy, wx, wy, 2, 13, body, dark, darker);
+  isoBox(g, ix, iy, wx, wy, 4, 15, body, dark, darker);
   const inx = axis === 'x' ? 0.28 : 0.1, iny = axis === 'x' ? 0.1 : 0.28;
-  isoBox(g, ix + inx, iy + iny, wx - 2 * inx, wy - 2 * iny, 13, 22, shade(body, 1, 1.12), N ? '#FFE9AE' : '#CFE8F7', N ? '#E8CE8E' : '#AFCFE4');
+  isoBox(g, ix + inx, iy + iny, wx - 2 * inx, wy - 2 * iny, 15, 24, shade(body, 1, 1.12), N ? '#FFE9AE' : '#CFE8F7', N ? '#E8CE8E' : '#AFCFE4');
+  // tyres — they spin while the car drives
+  const { B: cb, C: cc, D: cd } = cornersOf(ix, iy, wx, wy);
+  const lerp = (p, q, t) => ({ x: p.x + (q.x - p.x) * t, y: p.y + (q.y - p.y) * t });
+  drawWheel(g, lerp(cd, cc, 0.26), 5, seed + 21);
+  drawWheel(g, lerp(cd, cc, 0.78), 5, seed + 22);
+  drawWheel(g, lerp(cc, cb, 0.55), 4.2, seed + 23);
   if (N) {
     const f = isoS(ix + (axis === 'x' ? wx : wx / 2), iy + (axis === 'x' ? wy / 2 : wy));
     el('circle', { cx: f.x, cy: f.y - 6, r: 8, fill: '#FFE9AE', opacity: 0.25 }, g);
   }
+}
+
+function drawWheel(g, p, r, seed) {
+  const cy = p.y - 2;
+  const w = el('g', { class: 'spin', style: `--wdur:${(0.7 + rnd(seed) * 0.6).toFixed(2)}s` }, g);
+  el('circle', { cx: p.x, cy, r, fill: '#23262E' }, w);
+  el('circle', { cx: p.x, cy, r: r * 0.52, fill: '#9AA3B5' }, w);
+  el('rect', { x: p.x - r * 0.82, y: cy - 0.9, width: r * 1.64, height: 1.8, rx: 0.9, fill: '#3A4152' }, w);
+  el('rect', { x: p.x - 0.9, y: cy - r * 0.82, width: 1.8, height: r * 1.64, rx: 0.9, fill: '#3A4152' }, w);
 }
 
 function drawPedestrian(ix, iy, axis, seed, N) {
